@@ -115,6 +115,54 @@ describe("contentScript capture overlay", () => {
     ]);
   });
 
+  it("hides SnapIssue chrome while capturing the visible tab", async () => {
+    installCanvasCaptureFakes();
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/webp;base64,clean"
+    );
+    sendMessage.mockImplementation(async (message: { type?: string }) => {
+      if (message.type === "snapissue:capture-visible-tab") {
+        expect(
+          document.getElementById("snapissue-overlay-host")?.style.visibility
+        ).toBe("hidden");
+        return {
+          ok: true,
+          dataUrl: "data:image/png;base64,source"
+        };
+      }
+
+      return {
+        ok: true,
+        issueNumber: 123,
+        issueUrl: "https://github.com/acme/web/issues/123"
+      };
+    });
+
+    runtimeListener?.({
+      type: "snapissue:content-start-capture",
+      source: "popup"
+    });
+    const host = document.getElementById("snapissue-overlay-host");
+
+    host?.shadowRoot
+      ?.querySelector("[data-capture-layer]")
+      ?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          clientX: 321,
+          clientY: 222
+        })
+      );
+
+    await flushAsyncWork();
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(host?.style.visibility).toBe("");
+    expect(host?.shadowRoot?.textContent).toContain("Issue draft");
+    expect(host?.shadowRoot?.querySelector(".preview-button img")).not.toBeNull();
+  });
+
   it("canceling capture removes the overlay and restores the page", () => {
     runtimeListener?.({
       type: "snapissue:content-start-capture",

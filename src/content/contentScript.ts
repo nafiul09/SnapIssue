@@ -1660,15 +1660,48 @@ function listItemToMarkdown(child: Element, taskList: boolean): string {
 async function captureMarkedScreenshot(
   context: CaptureContext
 ): Promise<CapturedScreenshot> {
-  const response = (await chrome.runtime.sendMessage({
-    type: SNAPISSUE_CAPTURE_VISIBLE_TAB
-  })) as CaptureVisibleTabResponse | undefined;
+  const restoreSnapIssueChrome = hideSnapIssueChromeForCapture();
 
-  if (!response?.ok) {
-    throw new Error(response?.reason ?? "Visible tab capture failed.");
+  try {
+    await waitForNextPaint();
+
+    const response = (await chrome.runtime.sendMessage({
+      type: SNAPISSUE_CAPTURE_VISIBLE_TAB
+    })) as CaptureVisibleTabResponse | undefined;
+
+    if (!response?.ok) {
+      throw new Error(response?.reason ?? "Visible tab capture failed.");
+    }
+
+    return drawMarkerAndExportWebP(response.dataUrl, context);
+  } finally {
+    restoreSnapIssueChrome();
+  }
+}
+
+function hideSnapIssueChromeForCapture(): () => void {
+  const elements = [document.getElementById(HOST_ID), document.getElementById(TOAST_HOST_ID)]
+    .filter((element): element is HTMLElement => element instanceof HTMLElement)
+    .map((element) => ({
+      element,
+      visibility: element.style.visibility
+    }));
+
+  for (const { element } of elements) {
+    element.style.visibility = "hidden";
   }
 
-  return drawMarkerAndExportWebP(response.dataUrl, context);
+  return () => {
+    for (const { element, visibility } of elements) {
+      element.style.visibility = visibility;
+    }
+  };
+}
+
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
 }
 
 async function drawMarkerAndExportWebP(
