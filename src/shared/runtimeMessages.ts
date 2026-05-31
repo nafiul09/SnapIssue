@@ -4,6 +4,7 @@ export const SNAPISSUE_CONTENT_START_CAPTURE = "snapissue:content-start-capture"
 export const SNAPISSUE_CREATE_CONTEXT_ISSUE =
   "snapissue:create-context-issue";
 export const SNAPISSUE_CAPTURE_VISIBLE_TAB = "snapissue:capture-visible-tab";
+export const SNAPISSUE_TEST_R2_CONNECTION = "snapissue:test-r2-connection";
 
 export type CaptureSource = "popup" | "command";
 
@@ -57,6 +58,28 @@ export type CaptureVisibleTabMessage = {
   type: typeof SNAPISSUE_CAPTURE_VISIBLE_TAB;
 };
 
+export type TestR2ConnectionMessage = {
+  type: typeof SNAPISSUE_TEST_R2_CONNECTION;
+  payload: {
+    accountId: string;
+    bucketName: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    publicBaseUrl: string;
+  };
+};
+
+export type TestR2ConnectionResult =
+  | {
+      ok: true;
+      publicUrl: string;
+      deleted: boolean;
+    }
+  | {
+      ok: false;
+      reason: string;
+    };
+
 export type CaptureResult =
   | {
       ok: true;
@@ -85,6 +108,20 @@ export function isCaptureVisibleTabMessage(
     message !== null &&
     "type" in message &&
     message.type === SNAPISSUE_CAPTURE_VISIBLE_TAB
+  );
+}
+
+export function isTestR2ConnectionMessage(
+  message: unknown
+): message is TestR2ConnectionMessage {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "type" in message &&
+    message.type === SNAPISSUE_TEST_R2_CONNECTION &&
+    "payload" in message &&
+    typeof message.payload === "object" &&
+    message.payload !== null
   );
 }
 

@@ -22,6 +22,10 @@
     "tabs",
     "clipboardWrite"
   ],
+  "host_permissions": [
+    "https://*.r2.cloudflarestorage.com/*",
+    "https://*.r2.dev/*"
+  ],
   "commands": {
     "capture_issue": {
       "suggested_key": {

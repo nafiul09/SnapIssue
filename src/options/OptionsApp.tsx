@@ -1,5 +1,4 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
-import { testR2Connection } from "../background/r2Uploader";
 import {
   GitHubValidationError,
   createGitHubLabel,
@@ -37,6 +36,10 @@ import {
   formatSensitiveDomainText,
   parseSensitiveDomainText
 } from "../shared/sensitiveDomains";
+import {
+  SNAPISSUE_TEST_R2_CONNECTION,
+  type TestR2ConnectionResult
+} from "../shared/runtimeMessages";
 import {
   loadLabelsForRepo,
   loadRepoCatalog,
@@ -193,11 +196,19 @@ export function OptionsApp() {
       const normalized = normalizeR2Settings(r2Settings);
       setR2Settings(normalized);
 
-      const result = await testR2Connection({ settings: normalized });
-      setR2TestUrl(result.publicUrl);
+      const response = (await chrome.runtime.sendMessage({
+        type: SNAPISSUE_TEST_R2_CONNECTION,
+        payload: normalized
+      })) as TestR2ConnectionResult;
+
+      if (!response.ok) {
+        throw new Error(response.reason);
+      }
+
+      setR2TestUrl(response.publicUrl);
       setNotice({
         kind: "success",
-        message: result.deleted
+        message: response.deleted
           ? "R2 test passed. Dummy image uploaded, verified, and deleted."
           : "R2 test uploaded and verified the dummy image, but cleanup did not complete."
       });

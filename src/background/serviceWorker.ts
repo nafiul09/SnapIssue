@@ -1,11 +1,14 @@
 import { startCaptureFromActiveTab } from "./captureLauncher";
 import { createContextOnlyIssue } from "./contextIssueCreator";
+import { testR2Connection } from "./r2Uploader";
+import { normalizeR2Settings } from "../shared/r2Settings";
 import {
   SNAPISSUE_CAPTURE_COMMAND,
   type CaptureRequestMessage,
   isCaptureRequestMessage,
   isCaptureVisibleTabMessage,
-  isCreateContextIssueMessage
+  isCreateContextIssueMessage,
+  isTestR2ConnectionMessage
 } from "../shared/runtimeMessages";
 
 chrome.commands.onCommand.addListener((command) => {
@@ -50,6 +53,30 @@ chrome.runtime.onMessage.addListener(
           sendResponse({
             ok: false,
             reason: "Visible tab capture failed."
+          });
+        });
+
+      return true;
+    }
+
+    if (isTestR2ConnectionMessage(message)) {
+      void testR2Connection({
+        settings: normalizeR2Settings(message.payload)
+      })
+        .then((result) => {
+          sendResponse({
+            ok: true,
+            publicUrl: result.publicUrl,
+            deleted: result.deleted
+          });
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            reason:
+              error instanceof Error
+                ? error.message
+                : "R2 connection test failed."
           });
         });
 
