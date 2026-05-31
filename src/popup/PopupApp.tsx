@@ -5,15 +5,9 @@ import {
   type CaptureResult
 } from "../shared/runtimeMessages";
 import { deriveSetupStatus, type SetupStatus } from "../shared/settingsStatus";
+import { SETTINGS_STATUS_STORAGE_KEYS } from "../shared/storageKeys";
 
 type CaptureState = "idle" | "starting" | "started" | "failed";
-
-const STORAGE_KEYS = [
-  "githubToken",
-  "githubLogin",
-  "r2Settings",
-  "lastSuccessfulTarget"
-];
 
 export function PopupApp() {
   const [setupStatus, setSetupStatus] = useState<SetupStatus>(() =>
@@ -121,6 +115,8 @@ async function loadSetupStatus(): Promise<SetupStatus> {
     return deriveSetupStatus({});
   }
 
-  const snapshot = await globalThis.chrome.storage.local.get(STORAGE_KEYS);
+  const snapshot = await globalThis.chrome.storage.local.get([
+    ...SETTINGS_STATUS_STORAGE_KEYS
+  ]);
   return deriveSetupStatus(snapshot);
 }

@@ -17,10 +17,64 @@ body {
   margin: 0;
 }
 
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  align-items: center;
+  background: color-mix(in srgb, CanvasText 6%, Canvas);
+  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  border-radius: 6px;
+  color: CanvasText;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 750;
+  justify-content: center;
+  letter-spacing: 0;
+  min-block-size: 36px;
+  padding: 0 12px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+input,
+textarea {
+  background: Canvas;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 6px;
+  color: CanvasText;
+  inline-size: 100%;
+}
+
+input {
+  block-size: 38px;
+  padding: 0 10px;
+}
+
+textarea {
+  min-block-size: 156px;
+  padding: 10px;
+  resize: vertical;
+}
+
 .options-shell {
   display: grid;
   gap: 16px;
-  inline-size: min(720px, calc(100vw - 32px));
+  inline-size: min(780px, calc(100vw - 32px));
   margin: 0 auto;
   padding: 32px 0;
 }
@@ -61,14 +115,41 @@ p {
   margin-block-start: 4px;
 }
 
+.notice,
+.warning-block {
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.notice[data-kind="success"] {
+  background: color-mix(in srgb, #16a34a 10%, Canvas);
+  border: 1px solid color-mix(in srgb, #16a34a 24%, transparent);
+  color: color-mix(in srgb, #15803d 78%, CanvasText);
+}
+
+.notice[data-kind="error"],
+.warning-block {
+  background: color-mix(in srgb, #dc2626 10%, Canvas);
+  border: 1px solid color-mix(in srgb, #dc2626 22%, transparent);
+  color: color-mix(in srgb, #b91c1c 76%, CanvasText);
+}
+
 .settings-panel {
-  align-items: center;
   border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
   border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.section-heading {
+  align-items: start;
   display: flex;
   gap: 16px;
   justify-content: space-between;
-  padding: 16px;
 }
 
 .status-badge {
@@ -79,16 +160,67 @@ p {
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 750;
+  max-inline-size: 220px;
+  overflow: hidden;
   padding: 6px 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@media (max-width: 560px) {
-  .settings-panel {
+.status-badge[data-ready="true"] {
+  background: color-mix(in srgb, #16a34a 10%, Canvas);
+  border-color: color-mix(in srgb, #16a34a 24%, transparent);
+  color: color-mix(in srgb, #15803d 78%, CanvasText);
+}
+
+.field-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field span {
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.field-wide {
+  grid-column: 1 / -1;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compact-row {
+  margin-block-start: -8px;
+}
+
+.primary-action {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+
+@media (max-width: 640px) {
+  .section-heading {
     align-items: stretch;
     flex-direction: column;
   }
 
   .status-badge {
     align-self: start;
+  }
+
+  .field-grid {
+    grid-template-columns: 1fr;
   }
 }
