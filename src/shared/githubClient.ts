@@ -169,6 +169,27 @@ export async function createGitHubIssue(
   );
 }
 
+export async function updateGitHubIssueBody(
+  token: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  body: string,
+  fetchImpl: FetchLike = fetch
+): Promise<GitHubIssue> {
+  return githubJson<GitHubIssue>(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+      repo
+    )}/issues/${issueNumber}`,
+    token,
+    fetchImpl,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ body })
+    }
+  );
+}
+
 async function githubJson<T>(
   url: string,
   token: string,

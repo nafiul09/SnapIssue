@@ -1,5 +1,6 @@
 const SNAPISSUE_CONTENT_START_CAPTURE = "snapissue:content-start-capture";
 const SNAPISSUE_CREATE_CONTEXT_ISSUE = "snapissue:create-context-issue";
+const SNAPISSUE_CAPTURE_VISIBLE_TAB = "snapissue:capture-visible-tab";
 const HOST_ID = "snapissue-overlay-host";
 const STORAGE_KEY_REPO_CATALOG = "repoCatalog";
 const STORAGE_KEY_LABEL_CACHE = "labelCache";
@@ -50,17 +51,39 @@ type IssueDraftState = {
   repo: string;
   labels: GitHubLabel[];
   selectedLabels: string[];
+  screenshot: CapturedScreenshot | null;
+  captureWarning: string | null;
   repoCatalog: RepoCatalogCache | null;
   labelCache: LabelCache;
   error: string | null;
   submitting: boolean;
 };
 
+type CapturedScreenshot = {
+  dataUrl: string;
+  mimeType: "image/webp";
+  width: number;
+  height: number;
+  clickX: number;
+  clickY: number;
+};
+
+type CaptureVisibleTabResponse =
+  | {
+      ok: true;
+      dataUrl: string;
+    }
+  | {
+      ok: false;
+      reason: string;
+    };
+
 type CreateIssueResponse =
   | {
       ok: true;
       issueNumber: number;
       issueUrl: string;
+      warning?: string;
     }
   | {
       ok: false;
@@ -138,12 +161,19 @@ function mountCaptureOverlay(source: CaptureSource): void {
         event.preventDefault();
         event.stopPropagation();
         const pointerEvent = event as PointerEvent;
-        renderIssueOverlay(
-          shadow,
-          close,
-          activateCaptureMode,
-          buildCaptureContext(source, pointerEvent.clientX, pointerEvent.clientY)
+        const context = buildCaptureContext(
+          source,
+          pointerEvent.clientX,
+          pointerEvent.clientY
         );
+        renderCaptureProcessing(shadow);
+        void captureMarkedScreenshot(context)
+          .then((screenshot) => {
+            renderIssueOverlay(shadow, close, activateCaptureMode, context, screenshot);
+          })
+          .catch(() => {
+            renderIssueOverlay(shadow, close, activateCaptureMode, context, null);
+          });
       },
       {
         signal: abortController.signal
@@ -181,11 +211,28 @@ function renderCaptureMode(shadow: ShadowRoot): void {
   `;
 }
 
+function renderCaptureProcessing(shadow: ShadowRoot): void {
+  shadow.innerHTML = `
+    ${baseStyles()}
+    <div class="modal-layer">
+      <section class="issue-panel" role="dialog" aria-modal="true" aria-label="SnapIssue capture processing">
+        <div class="panel-header">
+          <div>
+            <h1>Capturing screenshot</h1>
+            <p>Preparing the marked WebP image.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderIssueOverlay(
   shadow: ShadowRoot,
   close: () => void,
   retake: () => void,
-  context: CaptureContext
+  context: CaptureContext,
+  screenshot: CapturedScreenshot | null
 ): void {
   const draft: IssueDraftState = {
     title: "",
@@ -195,6 +242,8 @@ function renderIssueOverlay(
     repo: "",
     labels: [],
     selectedLabels: [],
+    screenshot,
+    captureWarning: screenshot ? null : "Screenshot capture failed. The issue can still be created.",
     repoCatalog: null,
     labelCache: {},
     error: null,
@@ -342,6 +391,7 @@ async function submitIssueDraft(
       title: draft.title,
       description: editorHtmlToMarkdown(draft.editorHtml),
       labels: draft.selectedLabels,
+      screenshot: draft.screenshot ?? undefined,
       context: {
         url: context.url,
         title: context.title,
@@ -355,7 +405,7 @@ async function submitIssueDraft(
   })) as CreateIssueResponse | undefined;
 
   if (response?.ok) {
-    renderIssueSuccess(response.issueNumber, response.issueUrl, close);
+    renderIssueSuccess(response.issueNumber, response.issueUrl, close, response.warning);
     return;
   }
 
@@ -367,7 +417,8 @@ async function submitIssueDraft(
 function renderIssueSuccess(
   issueNumber: number,
   issueUrl: string,
-  close: () => void
+  close: () => void,
+  warning?: string
 ): void {
   const host = document.getElementById(HOST_ID);
   const shadow = host?.shadowRoot;
@@ -386,6 +437,7 @@ function renderIssueSuccess(
           </div>
           <button type="button" data-cancel>Close</button>
         </div>
+        ${warning ? `<p class="notice">${escapeHtml(warning)}</p>` : ""}
         <div class="button-row">
           <a class="link-button" href="${escapeHtml(issueUrl)}" target="_blank" rel="noreferrer">View Issue</a>
         </div>
@@ -484,6 +536,8 @@ function buildIssueFormHtml(
           </div>
         </div>
 
+        ${buildScreenshotPreview(draft)}
+
         <div>
           <span class="field-heading">Labels</span>
           <div class="label-list">
@@ -522,6 +576,24 @@ function buildLabelCheckbox(label: GitHubLabel, draft: IssueDraftState): string 
       ${escapeHtml(label.name)}
     </label>
   `;
+}
+
+function buildScreenshotPreview(draft: IssueDraftState): string {
+  if (draft.screenshot) {
+    return `
+      <div>
+        <span class="field-heading">Screenshot</span>
+        <div class="screenshot-preview">
+          <img src="${draft.screenshot.dataUrl}" alt="Marked screenshot preview" />
+          <span>WebP, ${draft.screenshot.width} x ${draft.screenshot.height}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  return draft.captureWarning
+    ? `<p class="notice">${escapeHtml(draft.captureWarning)}</p>`
+    : "";
 }
 
 function editorButton(command: string, label: string, title: string): string {
@@ -721,6 +793,73 @@ function listItemToMarkdown(child: Element, taskList: boolean): string {
   }
 
   return `- ${text}\n`;
+}
+
+async function captureMarkedScreenshot(
+  context: CaptureContext
+): Promise<CapturedScreenshot> {
+  const response = (await chrome.runtime.sendMessage({
+    type: SNAPISSUE_CAPTURE_VISIBLE_TAB
+  })) as CaptureVisibleTabResponse | undefined;
+
+  if (!response?.ok) {
+    throw new Error(response?.reason ?? "Visible tab capture failed.");
+  }
+
+  return drawMarkerAndExportWebP(response.dataUrl, context);
+}
+
+async function drawMarkerAndExportWebP(
+  imageDataUrl: string,
+  context: CaptureContext
+): Promise<CapturedScreenshot> {
+  const image = await loadImage(imageDataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+
+  const renderingContext = canvas.getContext("2d");
+  if (!renderingContext) {
+    throw new Error("Canvas rendering is unavailable.");
+  }
+
+  renderingContext.drawImage(image, 0, 0);
+
+  const scaleX = canvas.width / Math.max(context.viewportWidth, 1);
+  const scaleY = canvas.height / Math.max(context.viewportHeight, 1);
+  const markerScale = (scaleX + scaleY) / 2;
+  const markerX = context.clickX * scaleX;
+  const markerY = context.clickY * scaleY;
+
+  renderingContext.beginPath();
+  renderingContext.arc(markerX, markerY, 14 * markerScale, 0, Math.PI * 2);
+  renderingContext.lineWidth = 5 * markerScale;
+  renderingContext.strokeStyle = "rgba(255,255,255,0.95)";
+  renderingContext.stroke();
+
+  renderingContext.beginPath();
+  renderingContext.arc(markerX, markerY, 14 * markerScale, 0, Math.PI * 2);
+  renderingContext.lineWidth = 3 * markerScale;
+  renderingContext.strokeStyle = "#ef4444";
+  renderingContext.stroke();
+
+  return {
+    dataUrl: canvas.toDataURL("image/webp", 0.9),
+    mimeType: "image/webp",
+    width: canvas.width,
+    height: canvas.height,
+    clickX: context.clickX,
+    clickY: context.clickY
+  };
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Screenshot image could not be loaded."));
+    image.src = dataUrl;
+  });
 }
 
 function buildCaptureContext(
@@ -1104,6 +1243,30 @@ function baseStyles(): string {
         color: color-mix(in srgb, CanvasText 58%, transparent);
         font-size: 12px;
         font-weight: 650;
+      }
+
+      .screenshot-preview {
+        border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+        border-radius: 8px;
+        display: grid;
+        gap: 8px;
+        margin-block-start: 8px;
+        overflow: hidden;
+        padding: 8px;
+      }
+
+      .screenshot-preview img {
+        border-radius: 6px;
+        display: block;
+        inline-size: 100%;
+        max-block-size: 220px;
+        object-fit: contain;
+      }
+
+      .screenshot-preview span {
+        color: color-mix(in srgb, CanvasText 58%, transparent);
+        font-size: 12px;
+        font-weight: 700;
       }
 
       .context-grid {

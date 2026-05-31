@@ -6,6 +6,7 @@ import {
   createGitHubLabel,
   listAccessibleRepos,
   listGitHubLabels,
+  updateGitHubIssueBody,
   validateGitHubToken
 } from "./githubClient";
 
@@ -176,6 +177,35 @@ describe("GitHub repo and label APIs", () => {
           body: "Body",
           labels: ["bug", "frontend"]
         })
+      })
+    );
+  });
+
+  it("updates GitHub issue bodies after screenshot upload", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          number: 123,
+          html_url: "https://github.com/acme/web/issues/123"
+        }),
+        { status: 200 }
+      )
+    );
+
+    await updateGitHubIssueBody(
+      "token-value",
+      "acme",
+      "web",
+      123,
+      "Updated body",
+      fetchImpl
+    );
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/repos/acme/web/issues/123",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ body: "Updated body" })
       })
     );
   });

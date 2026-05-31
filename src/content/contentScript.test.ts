@@ -24,11 +24,18 @@ describe("contentScript capture overlay", () => {
     });
     runtimeListener = null;
     storageValues = {};
-    sendMessage = vi.fn(async () => ({
-      ok: true,
-      issueNumber: 123,
-      issueUrl: "https://github.com/acme/web/issues/123"
-    }));
+    sendMessage = vi.fn(async (message: { type?: string }) =>
+      message.type === "snapissue:capture-visible-tab"
+        ? {
+            ok: false,
+            reason: "capture unavailable in test"
+          }
+        : {
+            ok: true,
+            issueNumber: 123,
+            issueUrl: "https://github.com/acme/web/issues/123"
+          }
+    );
 
     vi.stubGlobal("chrome", {
       runtime: {
@@ -52,7 +59,7 @@ describe("contentScript capture overlay", () => {
     await import("./contentScript");
   });
 
-  it("blocks interaction with a Shadow DOM capture layer and records click context", () => {
+  it("blocks interaction with a Shadow DOM capture layer and records click context", async () => {
     expect(runtimeListener).toBeTypeOf("function");
 
     runtimeListener?.({
@@ -74,6 +81,8 @@ describe("contentScript capture overlay", () => {
           clientY: 222
         })
       );
+
+    await flushAsyncWork();
 
     expect(host?.shadowRoot?.textContent).toContain("Issue draft");
     expect(host?.shadowRoot?.textContent).toContain("Example Page");
@@ -152,6 +161,7 @@ describe("contentScript capture overlay", () => {
       );
 
     await flushAsyncWork();
+    await flushAsyncWork();
 
     const owner = host?.shadowRoot?.querySelector("[data-owner]");
     expect(owner?.textContent).toContain("acme");
@@ -203,7 +213,12 @@ describe("contentScript capture overlay", () => {
         })
       })
     );
-    const payload = sendMessage.mock.calls[0][0].payload;
+    const payload = sendMessage.mock.calls.find(
+      ([message]) => message.type === "snapissue:create-context-issue"
+    )?.[0].payload;
+    if (!payload) {
+      throw new Error("Create issue payload was not sent.");
+    }
     expect(payload.description).toContain("- One");
     expect(payload.description).toContain("> Quote");
     expect(payload.description).not.toContain("<strong>");

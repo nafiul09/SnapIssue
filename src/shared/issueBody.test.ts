@@ -38,4 +38,25 @@ describe("buildContextOnlyIssueBody", () => {
       }).startsWith("## Context")
     ).toBe(true);
   });
+
+  it("appends screenshot Markdown before generated context", () => {
+    const body = buildContextOnlyIssueBody({
+      description: "Screenshot attached.",
+      context,
+      screenshots: [
+        {
+          url: "https://assets.example.com/capture.webp",
+          clickX: 321,
+          clickY: 222
+        }
+      ]
+    });
+
+    expect(body).toContain("## Screenshots");
+    expect(body).toContain(
+      "![Screenshot 1](https://assets.example.com/capture.webp)"
+    );
+    expect(body).toContain("Click: x=321, y=222");
+    expect(body.indexOf("## Screenshots")).toBeLessThan(body.indexOf("## Context"));
+  });
 });

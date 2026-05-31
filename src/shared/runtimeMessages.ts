@@ -3,6 +3,7 @@ export const SNAPISSUE_CAPTURE_REQUEST = "snapissue:capture-request";
 export const SNAPISSUE_CONTENT_START_CAPTURE = "snapissue:content-start-capture";
 export const SNAPISSUE_CREATE_CONTEXT_ISSUE =
   "snapissue:create-context-issue";
+export const SNAPISSUE_CAPTURE_VISIBLE_TAB = "snapissue:capture-visible-tab";
 
 export type CaptureSource = "popup" | "command";
 
@@ -33,11 +34,25 @@ export type CreateContextIssuePayload = {
   description: string;
   labels: string[];
   context: CapturedPageContext;
+  screenshot?: CapturedScreenshot;
+};
+
+export type CapturedScreenshot = {
+  dataUrl: string;
+  mimeType: "image/webp";
+  width: number;
+  height: number;
+  clickX: number;
+  clickY: number;
 };
 
 export type CreateContextIssueMessage = {
   type: typeof SNAPISSUE_CREATE_CONTEXT_ISSUE;
   payload: CreateContextIssuePayload;
+};
+
+export type CaptureVisibleTabMessage = {
+  type: typeof SNAPISSUE_CAPTURE_VISIBLE_TAB;
 };
 
 export type CaptureResult =
@@ -57,6 +72,17 @@ export function isCaptureRequestMessage(
     message !== null &&
     "type" in message &&
     message.type === SNAPISSUE_CAPTURE_REQUEST
+  );
+}
+
+export function isCaptureVisibleTabMessage(
+  message: unknown
+): message is CaptureVisibleTabMessage {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "type" in message &&
+    message.type === SNAPISSUE_CAPTURE_VISIBLE_TAB
   );
 }
 

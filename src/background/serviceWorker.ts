@@ -4,6 +4,7 @@ import {
   SNAPISSUE_CAPTURE_COMMAND,
   type CaptureRequestMessage,
   isCaptureRequestMessage,
+  isCaptureVisibleTabMessage,
   isCreateContextIssueMessage
 } from "../shared/runtimeMessages";
 
@@ -28,6 +29,27 @@ chrome.runtime.onMessage.addListener(
           sendResponse({
             ok: false,
             reason: "GitHub issue creation failed. Check token access and retry."
+          });
+        });
+
+      return true;
+    }
+
+    if (isCaptureVisibleTabMessage(message)) {
+      void chrome.tabs
+        .captureVisibleTab({
+          format: "png"
+        })
+        .then((dataUrl) => {
+          sendResponse({
+            ok: true,
+            dataUrl
+          });
+        })
+        .catch(() => {
+          sendResponse({
+            ok: false,
+            reason: "Visible tab capture failed."
           });
         });
 

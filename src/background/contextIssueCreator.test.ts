@@ -67,6 +67,125 @@ describe("createContextOnlyIssue", () => {
     expect(storage.set).not.toHaveBeenCalled();
   });
 
+  it("creates the issue before uploading and patching screenshot Markdown", async () => {
+    const storage = createStorage({
+      [STORAGE_KEYS.githubToken]: "token-value",
+      [STORAGE_KEYS.githubLogin]: "octocat",
+      [STORAGE_KEYS.r2Settings]: {
+        accountId: "account",
+        bucketName: "bucket",
+        accessKeyId: "access",
+        secretAccessKey: "secret",
+        publicBaseUrl: "https://assets.example.com"
+      }
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            number: 123,
+            html_url: "https://github.com/acme/web/issues/123"
+          }),
+          { status: 201 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            number: 123,
+            html_url: "https://github.com/acme/web/issues/123"
+          }),
+          { status: 200 }
+        )
+      );
+    const uploadScreenshot = vi.fn(async () => ({
+      key: "captures/file.webp",
+      publicUrl: "https://assets.example.com/captures/file.webp"
+    }));
+
+    await createContextOnlyIssue(
+      storage,
+      {
+        ...payload,
+        screenshot: {
+          dataUrl: "data:image/webp;base64,abc",
+          mimeType: "image/webp",
+          width: 1440,
+          height: 900,
+          clickX: 321,
+          clickY: 222
+        }
+      },
+      fetchImpl,
+      uploadScreenshot
+    );
+
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      "https://api.github.com/repos/acme/web/issues"
+    );
+    expect(uploadScreenshot.mock.invocationCallOrder[0]).toBeGreaterThan(
+      fetchImpl.mock.invocationCallOrder[0]
+    );
+    expect(fetchImpl.mock.calls[1][0]).toBe(
+      "https://api.github.com/repos/acme/web/issues/123"
+    );
+    expect(fetchImpl.mock.calls[1][1].body).toContain("## Screenshots");
+    expect(fetchImpl.mock.calls[1][1].body).toContain(
+      "https://assets.example.com/captures/file.webp"
+    );
+  });
+
+  it("keeps the issue created when screenshot upload fails", async () => {
+    const storage = createStorage({
+      [STORAGE_KEYS.githubToken]: "token-value",
+      [STORAGE_KEYS.githubLogin]: "octocat",
+      [STORAGE_KEYS.r2Settings]: {
+        accountId: "account",
+        bucketName: "bucket",
+        accessKeyId: "access",
+        secretAccessKey: "secret",
+        publicBaseUrl: "https://assets.example.com"
+      }
+    });
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          number: 123,
+          html_url: "https://github.com/acme/web/issues/123"
+        }),
+        { status: 201 }
+      )
+    );
+    const uploadScreenshot = vi.fn(async () => {
+      throw new Error("upload failed");
+    });
+
+    await expect(
+      createContextOnlyIssue(
+        storage,
+        {
+          ...payload,
+          screenshot: {
+            dataUrl: "data:image/webp;base64,abc",
+            mimeType: "image/webp",
+            width: 1440,
+            height: 900,
+            clickX: 321,
+            clickY: 222
+          }
+        },
+        fetchImpl,
+        uploadScreenshot
+      )
+    ).resolves.toEqual({
+      ok: true,
+      issueNumber: 123,
+      issueUrl: "https://github.com/acme/web/issues/123",
+      warning: "Issue created, screenshot failed."
+    });
+  });
+
   it("requires title and target before submit", async () => {
     const storage = createStorage({ [STORAGE_KEYS.githubToken]: "token-value" });
 
