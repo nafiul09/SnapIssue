@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContextOnlyIssueBody } from "./issueBody";
+import { buildContextOnlyIssueBody, buildScreenshotMarkdownLinks } from "./issueBody";
 
 const context = {
   url: "https://example.com/page",
@@ -85,5 +85,20 @@ describe("buildContextOnlyIssueBody", () => {
     expect(body).toContain("Click: x=22, y=44");
     expect(body).toContain("### Screenshot 2");
     expect(body).toContain("Click: x=88, y=99");
+  });
+
+  it("builds copyable screenshot Markdown without page context", () => {
+    expect(
+      buildScreenshotMarkdownLinks([
+        {
+          url: "https://assets.example.com/capture.webp",
+          clickX: 12,
+          clickY: 34
+        }
+      ])
+    ).toBe(`### Screenshot 1
+![Screenshot 1](https://assets.example.com/capture.webp)
+
+Click: x=12, y=34`);
   });
 });

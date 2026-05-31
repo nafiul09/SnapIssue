@@ -4,7 +4,11 @@ import {
   type FetchLike
 } from "../shared/githubClient";
 import { uploadWebPScreenshotToR2 } from "./r2Uploader";
-import { buildContextOnlyIssueBody, type IssueScreenshot } from "../shared/issueBody";
+import {
+  buildContextOnlyIssueBody,
+  buildScreenshotMarkdownLinks,
+  type IssueScreenshot
+} from "../shared/issueBody";
 import { normalizeR2Settings, type R2Settings } from "../shared/r2Settings";
 import type { CreateContextIssuePayload } from "../shared/runtimeMessages";
 import { STORAGE_KEYS } from "../shared/storageKeys";
@@ -20,6 +24,7 @@ export type ContextIssueResult =
       issueNumber: number;
       issueUrl: string;
       warning?: string;
+      fallbackMarkdown?: string;
     }
   | {
       ok: false;
@@ -87,12 +92,13 @@ export async function createContextOnlyIssue(
       };
     }
 
+    const uploadedScreenshots: IssueScreenshot[] = [];
+
     try {
       const r2Settings = normalizeR2Settings(
         snapshot[STORAGE_KEYS.r2Settings] as R2Settings
       );
       const githubLogin = readRequiredString(snapshot[STORAGE_KEYS.githubLogin]);
-      const uploadedScreenshots: IssueScreenshot[] = [];
 
       for (const screenshot of screenshots) {
         const upload = await uploadScreenshot({
@@ -109,13 +115,22 @@ export async function createContextOnlyIssue(
           clickY: screenshot.clickY
         });
       }
+    } catch {
+      return {
+        ok: true,
+        issueNumber: issue.number,
+        issueUrl: issue.html_url,
+        warning: "Issue created, screenshots failed."
+      };
+    }
 
-      const finalBody = buildContextOnlyIssueBody({
-        description: payload.description,
-        context: payload.context,
-        screenshots: uploadedScreenshots
-      });
+    const finalBody = buildContextOnlyIssueBody({
+      description: payload.description,
+      context: payload.context,
+      screenshots: uploadedScreenshots
+    });
 
+    try {
       await updateGitHubIssueBody(
         token,
         payload.owner,
@@ -135,7 +150,8 @@ export async function createContextOnlyIssue(
         ok: true,
         issueNumber: issue.number,
         issueUrl: issue.html_url,
-        warning: "Issue created, screenshot failed."
+        warning: "Issue created, screenshots not attached.",
+        fallbackMarkdown: buildScreenshotMarkdownLinks(uploadedScreenshots)
       };
     }
   } catch {

@@ -162,7 +162,7 @@ describe("createContextOnlyIssue", () => {
     expect(patchedBody).toContain("Click: x=98, y=76");
   });
 
-  it("keeps the issue created when screenshot upload fails", async () => {
+  it("keeps the issue created when screenshot upload fails without exposing error details", async () => {
     const storage = createStorage({
       [STORAGE_KEYS.githubToken]: "token-value",
       [STORAGE_KEYS.githubLogin]: "octocat",
@@ -184,39 +184,102 @@ describe("createContextOnlyIssue", () => {
       )
     );
     const uploadScreenshot = vi.fn(async () => {
-      throw new Error("upload failed");
+      throw new Error("upload failed with secretAccessKey=should-not-leak");
     });
 
-    await expect(
-      createContextOnlyIssue(
-        storage,
-        {
-          ...payload,
-          screenshot: {
-            dataUrl: "data:image/webp;base64,abc",
-            mimeType: "image/webp",
-            width: 1440,
-            height: 900,
-            clickX: 321,
-            clickY: 222
-          }
-        },
-        fetchImpl,
-        uploadScreenshot
-      )
-    ).resolves.toEqual({
+    const result = await createContextOnlyIssue(
+      storage,
+      {
+        ...payload,
+        screenshot: {
+          dataUrl: "data:image/webp;base64,abc",
+          mimeType: "image/webp",
+          width: 1440,
+          height: 900,
+          clickX: 321,
+          clickY: 222
+        }
+      },
+      fetchImpl,
+      uploadScreenshot
+    );
+
+    expect(result).toEqual({
       ok: true,
       issueNumber: 123,
       issueUrl: "https://github.com/acme/web/issues/123",
-      warning: "Issue created, screenshot failed."
+      warning: "Issue created, screenshots failed."
     });
+    expect(JSON.stringify(result)).not.toContain("secretAccessKey");
+  });
+
+  it("returns copyable Markdown when body update fails after upload", async () => {
+    const storage = createStorage({
+      [STORAGE_KEYS.githubToken]: "token-value",
+      [STORAGE_KEYS.githubLogin]: "octocat",
+      [STORAGE_KEYS.r2Settings]: {
+        accountId: "account",
+        bucketName: "bucket",
+        accessKeyId: "access",
+        secretAccessKey: "secret",
+        publicBaseUrl: "https://assets.example.com"
+      }
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            number: 123,
+            html_url: "https://github.com/acme/web/issues/123"
+          }),
+          { status: 201 }
+        )
+      )
+      .mockResolvedValueOnce(new Response("denied secret token text", { status: 500 }));
+    const uploadScreenshot = vi.fn(async () => ({
+      key: "captures/file.webp",
+      publicUrl: "https://assets.example.com/captures/file.webp"
+    }));
+
+    const result = await createContextOnlyIssue(
+      storage,
+      {
+        ...payload,
+        screenshot: {
+          dataUrl: "data:image/webp;base64,abc",
+          mimeType: "image/webp",
+          width: 1440,
+          height: 900,
+          clickX: 321,
+          clickY: 222
+        }
+      },
+      fetchImpl,
+      uploadScreenshot
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      issueNumber: 123,
+      issueUrl: "https://github.com/acme/web/issues/123",
+      warning: "Issue created, screenshots not attached.",
+      fallbackMarkdown: `### Screenshot 1
+![Screenshot 1](https://assets.example.com/captures/file.webp)
+
+Click: x=321, y=222`
+    });
+    expect(JSON.stringify(result)).not.toContain("denied secret token text");
   });
 
   it("requires title and target before submit", async () => {
     const storage = createStorage({ [STORAGE_KEYS.githubToken]: "token-value" });
 
     await expect(
-      createContextOnlyIssue(storage, { ...payload, title: " " })
+      createContextOnlyIssue(storage, {
+        ...payload,
+        title: " "
+      })
     ).resolves.toEqual({
       ok: false,
       reason: "Issue title is required."

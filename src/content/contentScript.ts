@@ -2,6 +2,7 @@ const SNAPISSUE_CONTENT_START_CAPTURE = "snapissue:content-start-capture";
 const SNAPISSUE_CREATE_CONTEXT_ISSUE = "snapissue:create-context-issue";
 const SNAPISSUE_CAPTURE_VISIBLE_TAB = "snapissue:capture-visible-tab";
 const HOST_ID = "snapissue-overlay-host";
+const TOAST_HOST_ID = "snapissue-toast-host";
 const STORAGE_KEY_REPO_CATALOG = "repoCatalog";
 const STORAGE_KEY_LABEL_CACHE = "labelCache";
 const STORAGE_KEY_LAST_SUCCESSFUL_TARGET = "lastSuccessfulTarget";
@@ -99,6 +100,7 @@ type CreateIssueResponse =
       issueNumber: number;
       issueUrl: string;
       warning?: string;
+      fallbackMarkdown?: string;
     }
   | {
       ok: false;
@@ -673,7 +675,13 @@ async function submitIssueDraft(
   })) as CreateIssueResponse | undefined;
 
   if (response?.ok) {
-    renderIssueSuccess(response.issueNumber, response.issueUrl, close, response.warning);
+    close();
+    showIssueToast({
+      issueNumber: response.issueNumber,
+      issueUrl: response.issueUrl,
+      warning: response.warning,
+      fallbackMarkdown: response.fallbackMarkdown
+    });
     return;
   }
 
@@ -682,38 +690,85 @@ async function submitIssueDraft(
   render();
 }
 
-function renderIssueSuccess(
-  issueNumber: number,
-  issueUrl: string,
-  close: () => void,
-  warning?: string
-): void {
-  const host = document.getElementById(HOST_ID);
-  const shadow = host?.shadowRoot;
-  if (!shadow) {
-    return;
-  }
+type IssueToastOptions = {
+  issueNumber: number;
+  issueUrl: string;
+  warning?: string;
+  fallbackMarkdown?: string;
+};
+
+function showIssueToast({
+  issueNumber,
+  issueUrl,
+  warning,
+  fallbackMarkdown
+}: IssueToastOptions): void {
+  document.getElementById(TOAST_HOST_ID)?.remove();
+
+  const host = document.createElement("div");
+  host.id = TOAST_HOST_ID;
+  host.style.position = "fixed";
+  host.style.insetBlockStart = "14px";
+  host.style.insetInlineStart = "50%";
+  host.style.transform = "translateX(-50%)";
+  host.style.zIndex = "2147483647";
+  host.style.pointerEvents = "auto";
+
+  const dismiss = () => {
+    window.clearTimeout(timeoutId);
+    host.remove();
+  };
+  const timeoutId = window.setTimeout(dismiss, 5000);
+  const shadow = host.attachShadow({ mode: "open" });
+  const message = warning ?? "Issue created";
 
   shadow.innerHTML = `
-    ${baseStyles()}
-    <div class="modal-layer">
-      <section class="issue-panel" role="dialog" aria-modal="true" aria-label="SnapIssue issue created">
-        <div class="panel-header">
-          <div>
-            <h1>Issue created</h1>
-            <p>#${issueNumber} was created on GitHub.</p>
-          </div>
-          <button type="button" data-cancel>Close</button>
-        </div>
-        ${warning ? `<p class="notice">${escapeHtml(warning)}</p>` : ""}
-        <div class="button-row">
-          <a class="link-button" href="${escapeHtml(issueUrl)}" target="_blank" rel="noreferrer">View Issue</a>
-        </div>
-      </section>
-    </div>
+    ${toastStyles()}
+    <section class="toast" role="status" aria-live="polite">
+      <div class="toast-copy">
+        <h1>${escapeHtml(message)}</h1>
+        <p>#${issueNumber} was created on GitHub.</p>
+      </div>
+      <div class="toast-actions">
+        ${
+          fallbackMarkdown
+            ? `<button type="button" data-copy-links>Copy links</button>`
+            : ""
+        }
+        <button class="primary-action" type="button" data-view-issue>View issue</button>
+      </div>
+      <span class="toast-progress" aria-hidden="true"></span>
+    </section>
   `;
 
-  shadow.querySelector("[data-cancel]")?.addEventListener("click", close);
+  shadow.querySelector("[data-view-issue]")?.addEventListener("click", () => {
+    window.open(issueUrl, "_blank", "noopener,noreferrer");
+    dismiss();
+  });
+  shadow.querySelector("[data-copy-links]")?.addEventListener("click", (event) => {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLButtonElement) || !fallbackMarkdown) {
+      return;
+    }
+
+    void copyMarkdownToClipboard(fallbackMarkdown)
+      .then(() => {
+        target.textContent = "Copied";
+      })
+      .catch(() => {
+        target.textContent = "Copy failed";
+      });
+  });
+
+  document.documentElement.append(host);
+}
+
+async function copyMarkdownToClipboard(markdown: string): Promise<void> {
+  if (!navigator.clipboard?.writeText) {
+    throw new Error("Clipboard is unavailable.");
+  }
+
+  await navigator.clipboard.writeText(markdown);
 }
 
 function buildIssueFormHtml(
@@ -1958,6 +2013,137 @@ function baseStyles(): string {
         }
 
         .button-row {
+          justify-content: start;
+        }
+      }
+    </style>
+  `;
+}
+
+function toastStyles(): string {
+  return `
+    <style>
+      :host {
+        all: initial;
+        color-scheme: light dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      .toast {
+        animation: toast-in 180ms ease-out;
+        background: Canvas;
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+        box-shadow: 0 18px 48px color-mix(in srgb, CanvasText 18%, transparent);
+        color: CanvasText;
+        display: grid;
+        gap: 12px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        inline-size: min(520px, calc(100vw - 32px));
+        overflow: hidden;
+        padding: 12px 12px 16px;
+        pointer-events: auto;
+        position: relative;
+      }
+
+      h1,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: 0;
+        line-height: 1.25;
+      }
+
+      p {
+        color: color-mix(in srgb, CanvasText 62%, transparent);
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.4;
+        margin-block-start: 3px;
+      }
+
+      button {
+        align-items: center;
+        background: color-mix(in srgb, CanvasText 6%, Canvas);
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 6px;
+        color: CanvasText;
+        cursor: pointer;
+        display: inline-flex;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 750;
+        justify-content: center;
+        letter-spacing: 0;
+        min-block-size: 32px;
+        padding: 0 10px;
+      }
+
+      button:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+      }
+
+      .primary-action {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: white;
+      }
+
+      .toast-actions {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: end;
+      }
+
+      .toast-progress {
+        animation: toast-progress 5s linear forwards;
+        background: #2563eb;
+        block-size: 3px;
+        inset-block-end: 0;
+        inset-inline: 0;
+        position: absolute;
+        transform-origin: left center;
+      }
+
+      @keyframes toast-in {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes toast-progress {
+        from {
+          transform: scaleX(1);
+        }
+        to {
+          transform: scaleX(0);
+        }
+      }
+
+      @media (max-width: 520px) {
+        .toast {
+          grid-template-columns: 1fr;
+        }
+
+        .toast-actions {
           justify-content: start;
         }
       }

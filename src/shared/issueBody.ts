@@ -34,14 +34,23 @@ function buildScreenshotsSection(screenshots: IssueScreenshot[]): string {
   return [
     "## Screenshots",
     "",
-    ...screenshots.flatMap((screenshot, index) => [
+    buildScreenshotMarkdownLinks(screenshots)
+  ]
+    .join("\n")
+    .trim();
+}
+
+export function buildScreenshotMarkdownLinks(
+  screenshots: IssueScreenshot[]
+): string {
+  return screenshots
+    .flatMap((screenshot, index) => [
       `### Screenshot ${index + 1}`,
       `![Screenshot ${index + 1}](${screenshot.url})`,
       "",
       `Click: x=${screenshot.clickX}, y=${screenshot.clickY}`,
       ""
     ])
-  ]
     .join("\n")
     .trim();
 }

@@ -13,6 +13,11 @@ describe("contentScript capture overlay", () => {
     vi.resetModules();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined
+    });
+    document.getElementById("snapissue-toast-host")?.remove();
     document.body.innerHTML = "";
     document.title = "Example Page";
     Reflect.deleteProperty(window, "__snapissueContentInstalled");
@@ -121,6 +126,80 @@ describe("contentScript capture overlay", () => {
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(document.getElementById("snapissue-overlay-host")).toBeNull();
+  });
+
+  it("closes the modal and shows a top-center success toast with a view action", async () => {
+    const openIssue = vi.spyOn(window, "open").mockImplementation(() => null);
+    const host = await openContextOnlyDraft();
+
+    host?.shadowRoot
+      ?.querySelector("[data-form]")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await flushAsyncWork();
+
+    expect(document.getElementById("snapissue-overlay-host")).toBeNull();
+    const toast = document.getElementById("snapissue-toast-host");
+    expect(toast?.style.insetBlockStart).toBe("14px");
+    expect(toast?.shadowRoot?.textContent).toContain("Issue created");
+    expect(toast?.shadowRoot?.textContent).toContain("View issue");
+    expect(toast?.shadowRoot?.querySelector(".toast-progress")).not.toBeNull();
+
+    toast?.shadowRoot
+      ?.querySelector("[data-view-issue]")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(openIssue).toHaveBeenCalledWith(
+      "https://github.com/acme/web/issues/123",
+      "_blank",
+      "noopener,noreferrer"
+    );
+    expect(document.getElementById("snapissue-toast-host")).toBeNull();
+  });
+
+  it("offers copyable screenshot links when GitHub body update fails after upload", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    sendMessage.mockImplementation(async (message: { type?: string }) =>
+      message.type === "snapissue:capture-visible-tab"
+        ? {
+            ok: false,
+            reason: "capture unavailable in test"
+          }
+        : {
+            ok: true,
+            issueNumber: 123,
+            issueUrl: "https://github.com/acme/web/issues/123",
+            warning: "Issue created, screenshots not attached.",
+            fallbackMarkdown: "![Screenshot 1](https://assets.example.com/file.webp)"
+          }
+    );
+    const host = await openContextOnlyDraft();
+
+    host?.shadowRoot
+      ?.querySelector("[data-form]")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await flushAsyncWork();
+
+    const toast = document.getElementById("snapissue-toast-host");
+    expect(toast?.shadowRoot?.textContent).toContain(
+      "Issue created, screenshots not attached."
+    );
+    toast?.shadowRoot
+      ?.querySelector("[data-copy-links]")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalledWith(
+      "![Screenshot 1](https://assets.example.com/file.webp)"
+    );
+    expect(toast?.shadowRoot?.textContent).toContain("Copied");
   });
 
   it("submits Markdown from the WYSIWYG editor instead of HTML", async () => {
@@ -353,6 +432,65 @@ describe("contentScript capture overlay", () => {
       clickY: 20
     });
   });
+
+  async function openContextOnlyDraft(): Promise<HTMLElement | null> {
+    storageValues = {
+      repoCatalog: {
+        owners: [
+          {
+            owner: "acme",
+            repos: [
+              {
+                owner: "acme",
+                name: "web",
+                fullName: "acme/web",
+                private: false
+              }
+            ]
+          }
+        ]
+      },
+      labelCache: {}
+    };
+
+    runtimeListener?.({
+      type: "snapissue:content-start-capture",
+      source: "popup"
+    });
+    const host = document.getElementById("snapissue-overlay-host");
+    host?.shadowRoot
+      ?.querySelector("[data-capture-layer]")
+      ?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          clientX: 321,
+          clientY: 222
+        })
+      );
+
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    const owner = host?.shadowRoot?.querySelector("[data-owner]");
+    if (owner instanceof HTMLSelectElement) {
+      owner.value = "acme";
+      owner.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    const repo = host?.shadowRoot?.querySelector("[data-repo]");
+    if (repo instanceof HTMLSelectElement) {
+      repo.value = "web";
+      repo.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    const title = host?.shadowRoot?.querySelector("[data-title]");
+    if (title instanceof HTMLInputElement) {
+      title.value = "Broken button";
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    return host;
+  }
 });
 
 function flushAsyncWork(): Promise<void> {
