@@ -1817,6 +1817,33 @@ function baseStyles(): string {
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           sans-serif;
+        --si-accent: #2563eb;
+        --si-bg: #f6f7f9;
+        --si-border: rgba(15, 23, 42, 0.12);
+        --si-border-strong: rgba(15, 23, 42, 0.18);
+        --si-danger: #dc2626;
+        --si-field: rgba(255, 255, 255, 0.72);
+        --si-muted: rgba(15, 23, 42, 0.62);
+        --si-panel: rgba(255, 255, 255, 0.72);
+        --si-panel-strong: rgba(255, 255, 255, 0.9);
+        --si-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+        --si-success: #16a34a;
+        --si-text: #0f172a;
+        --si-warning: #d97706;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :host {
+          --si-bg: #0b0c0f;
+          --si-border: rgba(255, 255, 255, 0.13);
+          --si-border-strong: rgba(255, 255, 255, 0.19);
+          --si-field: rgba(255, 255, 255, 0.05);
+          --si-muted: rgba(255, 255, 255, 0.64);
+          --si-panel: rgba(18, 19, 23, 0.78);
+          --si-panel-strong: rgba(255, 255, 255, 0.09);
+          --si-shadow: none;
+          --si-text: #f7f8fb;
+        }
       }
 
       * {
@@ -1825,8 +1852,8 @@ function baseStyles(): string {
 
       .capture-layer,
       .modal-layer {
-        background: color-mix(in srgb, Canvas 10%, transparent);
-        color: CanvasText;
+        background: color-mix(in srgb, var(--si-bg) 18%, transparent);
+        color: var(--si-text);
         inset: 0;
         position: fixed;
       }
@@ -1844,11 +1871,12 @@ function baseStyles(): string {
 
       .capture-hint,
       .issue-panel {
-        background: Canvas;
-        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        backdrop-filter: blur(18px) saturate(130%);
+        background: var(--si-panel);
+        border: 1px solid var(--si-border);
         border-radius: 8px;
-        box-shadow: 0 18px 48px color-mix(in srgb, CanvasText 18%, transparent);
-        color: CanvasText;
+        box-shadow: var(--si-shadow);
+        color: var(--si-text);
       }
 
       .capture-hint {
@@ -1893,7 +1921,7 @@ function baseStyles(): string {
       }
 
       p {
-        color: color-mix(in srgb, CanvasText 66%, transparent);
+        color: var(--si-muted);
         font-size: 12px;
         line-height: 1.45;
         margin-block-start: 3px;
@@ -1902,10 +1930,11 @@ function baseStyles(): string {
       button,
       .link-button {
         align-items: center;
-        background: color-mix(in srgb, CanvasText 6%, Canvas);
-        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        background: var(--si-panel-strong);
+        border: 1px solid var(--si-border);
         border-radius: 6px;
-        color: CanvasText;
+        box-shadow: var(--si-shadow);
+        color: var(--si-text);
         cursor: pointer;
         display: inline-flex;
         font: inherit;
@@ -1928,14 +1957,14 @@ function baseStyles(): string {
       input:focus-visible,
       select:focus-visible,
       textarea:focus-visible {
-        outline: 2px solid #2563eb;
+        outline: 2px solid var(--si-accent);
         outline-offset: 2px;
       }
 
       .primary-action,
       .link-button {
-        background: #2563eb;
-        border-color: #2563eb;
+        background: var(--si-accent);
+        border-color: var(--si-accent);
         color: white;
       }
 
@@ -1976,7 +2005,7 @@ function baseStyles(): string {
 
       label span,
       .field-heading {
-        color: color-mix(in srgb, CanvasText 62%, transparent);
+        color: var(--si-muted);
         font-size: 12px;
         font-weight: 750;
       }
@@ -1984,10 +2013,10 @@ function baseStyles(): string {
       input,
       select,
       textarea {
-        background: Canvas;
-        border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+        background: var(--si-field);
+        border: 1px solid var(--si-border-strong);
         border-radius: 6px;
-        color: CanvasText;
+        color: var(--si-text);
         font: inherit;
         font-size: 13px;
         inline-size: 100%;
@@ -2006,15 +2035,15 @@ function baseStyles(): string {
       }
 
       .editor-shell {
-        border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+        border: 1px solid var(--si-border-strong);
         border-radius: 8px;
         display: grid;
         overflow: hidden;
       }
 
       .editor-toolbar {
-        background: color-mix(in srgb, CanvasText 4%, Canvas);
-        border-block-end: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+        background: var(--si-panel-strong);
+        border-block-end: 1px solid var(--si-border);
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
@@ -2027,8 +2056,8 @@ function baseStyles(): string {
       }
 
       .editor-surface {
-        background: Canvas;
-        color: CanvasText;
+        background: var(--si-field);
+        color: var(--si-text);
         font-size: 13px;
         line-height: 1.5;
         min-block-size: 116px;
@@ -2038,19 +2067,19 @@ function baseStyles(): string {
       }
 
       .editor-surface:empty::before {
-        color: color-mix(in srgb, CanvasText 46%, transparent);
+        color: var(--si-muted);
         content: "Write the issue description";
       }
 
       .editor-surface code {
-        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        background: var(--si-panel-strong);
         border-radius: 4px;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         padding: 1px 4px;
       }
 
       .editor-surface pre {
-        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        background: var(--si-panel-strong);
         border-radius: 6px;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         overflow: auto;
@@ -2064,10 +2093,10 @@ function baseStyles(): string {
       }
 
       .notice {
-        background: color-mix(in srgb, #dc2626 10%, Canvas);
-        border: 1px solid color-mix(in srgb, #dc2626 24%, transparent);
+        background: color-mix(in srgb, var(--si-danger) 10%, var(--si-panel));
+        border: 1px solid color-mix(in srgb, var(--si-danger) 24%, transparent);
         border-radius: 6px;
-        color: color-mix(in srgb, #b91c1c 76%, CanvasText);
+        color: color-mix(in srgb, var(--si-danger) 74%, var(--si-text));
         font-size: 12px;
         font-weight: 700;
         line-height: 1.4;
@@ -2075,8 +2104,8 @@ function baseStyles(): string {
       }
 
       .sensitive-warning {
-        background: color-mix(in srgb, #d97706 11%, Canvas);
-        border: 1px solid color-mix(in srgb, #d97706 28%, transparent);
+        background: color-mix(in srgb, var(--si-warning) 11%, var(--si-panel));
+        border: 1px solid color-mix(in srgb, var(--si-warning) 28%, transparent);
         border-radius: 8px;
         display: grid;
         gap: 10px;
@@ -2084,7 +2113,7 @@ function baseStyles(): string {
       }
 
       .sensitive-warning p {
-        color: color-mix(in srgb, #92400e 78%, CanvasText);
+        color: color-mix(in srgb, var(--si-warning) 76%, var(--si-text));
         font-weight: 700;
       }
 
@@ -2099,8 +2128,8 @@ function baseStyles(): string {
 
       .label-chip {
         align-items: center;
-        background: color-mix(in srgb, CanvasText 5%, Canvas);
-        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        background: var(--si-panel-strong);
+        border: 1px solid var(--si-border);
         border-radius: 999px;
         cursor: pointer;
         display: inline-flex;
@@ -2124,7 +2153,7 @@ function baseStyles(): string {
       }
 
       .empty-state {
-        color: color-mix(in srgb, CanvasText 58%, transparent);
+        color: var(--si-muted);
         font-size: 12px;
         font-weight: 650;
       }
@@ -2137,7 +2166,7 @@ function baseStyles(): string {
       }
 
       .field-heading-row > span:last-of-type {
-        color: color-mix(in srgb, CanvasText 52%, transparent);
+        color: var(--si-muted);
         font-size: 12px;
         font-weight: 700;
       }
@@ -2149,7 +2178,8 @@ function baseStyles(): string {
       }
 
       .screenshot-item {
-        border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+        background: var(--si-panel-strong);
+        border: 1px solid var(--si-border);
         border-radius: 8px;
         display: grid;
         gap: 8px;
@@ -2159,7 +2189,7 @@ function baseStyles(): string {
       }
 
       .preview-button {
-        background: color-mix(in srgb, CanvasText 5%, Canvas);
+        background: var(--si-field);
         border: 0;
         border-radius: 6px;
         display: block;
@@ -2184,7 +2214,7 @@ function baseStyles(): string {
       }
 
       .screenshot-meta span {
-        color: color-mix(in srgb, CanvasText 58%, transparent);
+        color: var(--si-muted);
         font-size: 12px;
         font-weight: 700;
         overflow: hidden;
@@ -2206,7 +2236,7 @@ function baseStyles(): string {
 
       .crop-layer {
         align-items: center;
-        background: color-mix(in srgb, CanvasText 24%, transparent);
+        background: color-mix(in srgb, var(--si-bg) 42%, transparent);
         display: flex;
         inset: 0;
         justify-content: center;
@@ -2216,10 +2246,11 @@ function baseStyles(): string {
       }
 
       .crop-panel {
-        background: Canvas;
-        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        backdrop-filter: blur(18px) saturate(130%);
+        background: var(--si-panel);
+        border: 1px solid var(--si-border);
         border-radius: 8px;
-        box-shadow: 0 18px 48px color-mix(in srgb, CanvasText 20%, transparent);
+        box-shadow: var(--si-shadow);
         display: grid;
         gap: 14px;
         inline-size: min(760px, calc(100vw - 32px));
@@ -2227,7 +2258,7 @@ function baseStyles(): string {
       }
 
       .crop-stage {
-        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        background: var(--si-field);
         border-radius: 8px;
         display: grid;
         overflow: hidden;
@@ -2243,16 +2274,16 @@ function baseStyles(): string {
       }
 
       .crop-box {
-        border: 2px solid #2563eb;
-        box-shadow: 0 0 0 9999px color-mix(in srgb, CanvasText 38%, transparent);
+        border: 2px solid var(--si-accent);
+        box-shadow: 0 0 0 9999px color-mix(in srgb, var(--si-bg) 58%, transparent);
         cursor: move;
         position: absolute;
       }
 
       .crop-handle {
-        background: #2563eb;
+        background: var(--si-accent);
         block-size: 14px;
-        border: 2px solid Canvas;
+        border: 2px solid var(--si-panel);
         border-radius: 999px;
         cursor: nwse-resize;
         inline-size: 14px;
@@ -2262,7 +2293,7 @@ function baseStyles(): string {
       }
 
       .context-grid {
-        border-block: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+        border-block: 1px solid var(--si-border);
         display: grid;
         gap: 0;
         padding: 6px 0;
@@ -2281,7 +2312,7 @@ function baseStyles(): string {
       }
 
       .inline-checkbox span {
-        color: CanvasText;
+        color: var(--si-text);
         font-size: 12px;
         font-weight: 750;
       }
@@ -2301,7 +2332,7 @@ function baseStyles(): string {
       }
 
       dt {
-        color: color-mix(in srgb, CanvasText 56%, transparent);
+        color: var(--si-muted);
         font-weight: 750;
       }
 
@@ -2357,6 +2388,26 @@ function toastStyles(): string {
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           sans-serif;
+        --si-accent: #2563eb;
+        --si-bg: #f6f7f9;
+        --si-border: rgba(15, 23, 42, 0.12);
+        --si-muted: rgba(15, 23, 42, 0.62);
+        --si-panel: rgba(255, 255, 255, 0.72);
+        --si-panel-strong: rgba(255, 255, 255, 0.9);
+        --si-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+        --si-text: #0f172a;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :host {
+          --si-bg: #0b0c0f;
+          --si-border: rgba(255, 255, 255, 0.13);
+          --si-muted: rgba(255, 255, 255, 0.64);
+          --si-panel: rgba(18, 19, 23, 0.78);
+          --si-panel-strong: rgba(255, 255, 255, 0.09);
+          --si-shadow: none;
+          --si-text: #f7f8fb;
+        }
       }
 
       * {
@@ -2365,11 +2416,12 @@ function toastStyles(): string {
 
       .toast {
         animation: toast-in 180ms ease-out;
-        background: Canvas;
-        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        backdrop-filter: blur(18px) saturate(130%);
+        background: var(--si-panel);
+        border: 1px solid var(--si-border);
         border-radius: 8px;
-        box-shadow: 0 18px 48px color-mix(in srgb, CanvasText 18%, transparent);
-        color: CanvasText;
+        box-shadow: var(--si-shadow);
+        color: var(--si-text);
         display: grid;
         gap: 12px;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -2393,7 +2445,7 @@ function toastStyles(): string {
       }
 
       p {
-        color: color-mix(in srgb, CanvasText 62%, transparent);
+        color: var(--si-muted);
         font-size: 12px;
         font-weight: 650;
         line-height: 1.4;
@@ -2402,10 +2454,11 @@ function toastStyles(): string {
 
       button {
         align-items: center;
-        background: color-mix(in srgb, CanvasText 6%, Canvas);
-        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        background: var(--si-panel-strong);
+        border: 1px solid var(--si-border);
         border-radius: 6px;
-        color: CanvasText;
+        box-shadow: var(--si-shadow);
+        color: var(--si-text);
         cursor: pointer;
         display: inline-flex;
         font: inherit;
@@ -2418,13 +2471,13 @@ function toastStyles(): string {
       }
 
       button:focus-visible {
-        outline: 2px solid #2563eb;
+        outline: 2px solid var(--si-accent);
         outline-offset: 2px;
       }
 
       .primary-action {
-        background: #2563eb;
-        border-color: #2563eb;
+        background: var(--si-accent);
+        border-color: var(--si-accent);
         color: white;
       }
 
@@ -2438,7 +2491,7 @@ function toastStyles(): string {
 
       .toast-progress {
         animation: toast-progress 5s linear forwards;
-        background: #2563eb;
+        background: var(--si-accent);
         block-size: 3px;
         inset-block-end: 0;
         inset-inline: 0;
