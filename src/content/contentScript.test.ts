@@ -17,6 +17,7 @@ describe("contentScript capture overlay", () => {
       configurable: true,
       value: undefined
     });
+    window.history.replaceState({}, "", "/");
     document.getElementById("snapissue-toast-host")?.remove();
     document.body.innerHTML = "";
     document.title = "Example Page";
@@ -126,6 +127,38 @@ describe("contentScript capture overlay", () => {
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(document.getElementById("snapissue-overlay-host")).toBeNull();
+  });
+
+  it("canceling the form and page lifecycle events clear the active draft", async () => {
+    const host = await openContextOnlyDraft();
+
+    host?.shadowRoot
+      ?.querySelector("[data-cancel]")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(document.getElementById("snapissue-overlay-host")).toBeNull();
+
+    const nextHost = await openContextOnlyDraft();
+    window.dispatchEvent(new Event("pagehide"));
+
+    expect(nextHost?.isConnected).toBe(false);
+    expect(document.getElementById("snapissue-overlay-host")).toBeNull();
+  });
+
+  it("prevents stale submissions after the page URL changes", async () => {
+    const host = await openContextOnlyDraft();
+    window.history.pushState({}, "", "/changed-page");
+
+    host?.shadowRoot
+      ?.querySelector("[data-form]")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(document.getElementById("snapissue-overlay-host")).toBeNull();
+    expect(
+      sendMessage.mock.calls.some(
+        ([message]) => message.type === "snapissue:create-context-issue"
+      )
+    ).toBe(false);
   });
 
   it("closes the modal and shows a top-center success toast with a view action", async () => {
@@ -544,6 +577,77 @@ describe("contentScript capture overlay", () => {
       clickX: 10,
       clickY: 20
     });
+  });
+
+  it("caps screenshot drafts at five captures", async () => {
+    installCanvasCaptureFakes();
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/webp;base64,max"
+    );
+    sendMessage.mockImplementation(async (message: { type?: string }) =>
+      message.type === "snapissue:capture-visible-tab"
+        ? {
+            ok: true,
+            dataUrl: "data:image/png;base64,source"
+          }
+        : {
+            ok: true,
+            issueNumber: 123,
+            issueUrl: "https://github.com/acme/web/issues/123"
+          }
+    );
+    storageValues = {
+      repoCatalog: {
+        owners: [
+          {
+            owner: "acme",
+            repos: [
+              {
+                owner: "acme",
+                name: "web",
+                fullName: "acme/web",
+                private: false
+              }
+            ]
+          }
+        ]
+      },
+      labelCache: {},
+      sensitiveDomainPatterns: ["stripe.com"]
+    };
+
+    runtimeListener?.({
+      type: "snapissue:content-start-capture",
+      source: "popup"
+    });
+    const host = document.getElementById("snapissue-overlay-host");
+    host?.shadowRoot
+      ?.querySelector("[data-capture-layer]")
+      ?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, clientX: 10, clientY: 20 })
+      );
+    await flushAsyncWork();
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    for (let index = 0; index < 4; index += 1) {
+      host?.shadowRoot
+        ?.querySelector("[data-add-screenshot]")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      host?.shadowRoot
+        ?.querySelector("[data-capture-layer]")
+        ?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, clientX: 10, clientY: 20 })
+        );
+      await flushAsyncWork();
+      await flushAsyncWork();
+      await flushAsyncWork();
+    }
+
+    expect(host?.shadowRoot?.querySelectorAll(".screenshot-item")).toHaveLength(5);
+    const addButton = host?.shadowRoot?.querySelector("[data-add-screenshot]");
+    expect(addButton).toBeInstanceOf(HTMLButtonElement);
+    expect((addButton as HTMLButtonElement | null)?.disabled).toBe(true);
   });
 
   async function openContextOnlyDraft(): Promise<HTMLElement | null> {

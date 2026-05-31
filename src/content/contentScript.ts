@@ -170,6 +170,8 @@ function mountCaptureOverlay(source: CaptureSource): void {
 
   const host = document.createElement("div");
   const abortController = new AbortController();
+  let activeDraft: IssueDraftState | null = null;
+  let closed = false;
   host.id = HOST_ID;
   host.style.position = "fixed";
   host.style.inset = "0";
@@ -178,6 +180,14 @@ function mountCaptureOverlay(source: CaptureSource): void {
 
   const shadow = host.attachShadow({ mode: "open" });
   const close = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    if (activeDraft) {
+      clearDraftState(activeDraft);
+      activeDraft = null;
+    }
     abortController.abort();
     host.remove();
   };
@@ -227,6 +237,9 @@ function mountCaptureOverlay(source: CaptureSource): void {
         renderIssueOverlay(
           shadow,
           close,
+          (draft) => {
+            activeDraft = draft;
+          },
           startCaptureMode,
           context,
           screenshot
@@ -246,6 +259,10 @@ function mountCaptureOverlay(source: CaptureSource): void {
     },
     { signal: abortController.signal }
   );
+  window.addEventListener("pagehide", close, { signal: abortController.signal });
+  window.addEventListener("beforeunload", close, { signal: abortController.signal });
+  window.addEventListener("popstate", close, { signal: abortController.signal });
+  window.addEventListener("hashchange", close, { signal: abortController.signal });
 
   document.documentElement.append(host);
 }
@@ -284,6 +301,7 @@ function renderCaptureProcessing(shadow: ShadowRoot): void {
 function renderIssueOverlay(
   shadow: ShadowRoot,
   close: () => void,
+  setActiveDraft: (draft: IssueDraftState) => void,
   startCaptureMode: StartCaptureMode,
   context: CaptureContext,
   screenshot: CapturedScreenshot | null
@@ -312,6 +330,7 @@ function renderIssueOverlay(
     error: null,
     submitting: false
   };
+  setActiveDraft(draft);
 
   const render = () => {
     shadow.innerHTML = buildIssueFormHtml(context, draft);
@@ -690,6 +709,12 @@ async function submitIssueDraft(
   if (validationError) {
     draft.error = validationError;
     render();
+    return;
+  }
+
+  if (window.location.href !== context.url) {
+    clearDraftState(draft);
+    close();
     return;
   }
 
@@ -1311,6 +1336,27 @@ function validateDraft(draft: IssueDraftState): string | null {
   }
 
   return null;
+}
+
+function clearDraftState(draft: IssueDraftState): void {
+  draft.title = "";
+  draft.description = "";
+  draft.editorHtml = "";
+  draft.owner = "";
+  draft.repo = "";
+  draft.labels = [];
+  draft.selectedLabels = [];
+  draft.screenshots = [];
+  draft.includeEnvironmentContext = false;
+  draft.sensitiveWarningVisible = false;
+  draft.sensitiveWarningDismissed = false;
+  draft.sensitiveMatchPattern = null;
+  draft.captureWarning = null;
+  draft.cropOpen = false;
+  draft.activeCropId = null;
+  draft.crop = null;
+  draft.error = null;
+  draft.submitting = false;
 }
 
 function getSensitiveWarningMatch(
