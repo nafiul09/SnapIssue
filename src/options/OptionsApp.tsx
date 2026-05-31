@@ -1,8 +1,19 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   GitHubValidationError,
+  createGitHubLabel,
+  listAccessibleRepos,
+  listGitHubLabels,
+  type GitHubLabel,
   validateGitHubToken
 } from "../shared/githubClient";
+import { generateLabelColor } from "../shared/labelColor";
+import {
+  buildRepoCatalog,
+  findRepoInCatalog,
+  type RepoCatalogCache,
+  type RepoCatalogEntry
+} from "../shared/repoCatalog";
 import {
   buildR2SettingsExport,
   emptyR2Settings,
@@ -18,13 +29,29 @@ import {
   saveR2Settings,
   type LocalSettingsStorage
 } from "../shared/settingsStorage";
+import {
+  loadLabelsForRepo,
+  loadRepoCatalog,
+  saveLabelsForRepo,
+  saveRepoCatalog,
+  sortLabels
+} from "../shared/targetingStorage";
 
 type Notice = {
   kind: "success" | "error";
   message: string;
 } | null;
 
-type BusyAction = "github" | "r2" | "import" | "clear-github" | "clear-r2" | null;
+type BusyAction =
+  | "github"
+  | "r2"
+  | "import"
+  | "clear-github"
+  | "clear-r2"
+  | "repos"
+  | "labels"
+  | "create-label"
+  | null;
 
 export function OptionsApp() {
   const [githubToken, setGithubToken] = useState("");
@@ -33,8 +60,23 @@ export function OptionsApp() {
     emptyR2Settings()
   );
   const [r2Json, setR2Json] = useState("");
+  const [repoCatalog, setRepoCatalog] = useState<RepoCatalogCache | null>(null);
+  const [selectedOwner, setSelectedOwner] = useState("");
+  const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
+  const [labels, setLabels] = useState<GitHubLabel[]>([]);
+  const [selectedLabelNames, setSelectedLabelNames] = useState<string[]>([]);
+  const [newLabelName, setNewLabelName] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+
+  const selectedOwnerGroup = useMemo(
+    () => repoCatalog?.owners.find((group) => group.owner === selectedOwner) ?? null,
+    [repoCatalog, selectedOwner]
+  );
+  const selectedRepo = useMemo(
+    () => findRepoInCatalog(repoCatalog, selectedRepoFullName),
+    [repoCatalog, selectedRepoFullName]
+  );
 
   useEffect(() => {
     void hydrateSettings();
@@ -50,6 +92,9 @@ export function OptionsApp() {
     setGithubToken(stored.githubToken);
     setGithubLogin(stored.githubLogin);
     setR2Settings(stored.r2Settings ?? emptyR2Settings());
+
+    const cachedCatalog = await loadRepoCatalog(storage);
+    setRepoCatalog(cachedCatalog);
   }
 
   async function handleSaveGitHub(event: FormEvent<HTMLFormElement>) {
@@ -170,6 +215,137 @@ export function OptionsApp() {
     }
   }
 
+  async function handleRefreshRepos() {
+    setBusyAction("repos");
+    setNotice(null);
+
+    try {
+      const storage = requireLocalStorage();
+      const repos = await listAccessibleRepos(githubToken);
+      const catalog = buildRepoCatalog(repos);
+      await saveRepoCatalog(storage, catalog);
+      setRepoCatalog(catalog);
+      setSelectedOwner("");
+      setSelectedRepoFullName("");
+      setLabels([]);
+      setSelectedLabelNames([]);
+      setNotice({
+        kind: "success",
+        message: `Repo access refreshed: ${countCatalogRepos(catalog)} eligible repos.`
+      });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: getSettingsErrorMessage(error)
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleSelectOwner(owner: string) {
+    setSelectedOwner(owner);
+    setSelectedRepoFullName("");
+    setLabels([]);
+    setSelectedLabelNames([]);
+  }
+
+  async function handleSelectRepo(repo: RepoCatalogEntry) {
+    setSelectedOwner(repo.owner);
+    setSelectedRepoFullName(repo.fullName);
+    setSelectedLabelNames([]);
+    await refreshLabels(repo);
+  }
+
+  async function refreshLabels(repo: RepoCatalogEntry | null = selectedRepo) {
+    if (!repo) {
+      return;
+    }
+
+    setBusyAction("labels");
+    setNotice(null);
+
+    try {
+      const storage = requireLocalStorage();
+      const cachedLabels = await loadLabelsForRepo(storage, repo.owner, repo.name);
+      if (cachedLabels.length > 0) {
+        setLabels(sortLabels(cachedLabels));
+      }
+
+      const fetchedLabels = await listGitHubLabels(githubToken, repo.owner, repo.name);
+      const sortedLabels = sortLabels(fetchedLabels);
+      await saveLabelsForRepo(storage, repo.owner, repo.name, sortedLabels);
+      setLabels(sortedLabels);
+      setNotice({
+        kind: "success",
+        message: `Loaded ${sortedLabels.length} labels for ${repo.fullName}.`
+      });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: getSettingsErrorMessage(error)
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleCreateLabel() {
+    if (!selectedRepo) {
+      setNotice({ kind: "error", message: "Select a repo before creating labels." });
+      return;
+    }
+
+    setBusyAction("create-label");
+    setNotice(null);
+
+    try {
+      const labelName = newLabelName.trim();
+      const color = generateLabelColor(labelName);
+      const createdLabel = await createGitHubLabel(
+        githubToken,
+        selectedRepo.owner,
+        selectedRepo.name,
+        labelName,
+        color
+      );
+      const nextLabels = sortLabels([
+        ...labels.filter((label) => label.name !== createdLabel.name),
+        createdLabel
+      ]);
+      await saveLabelsForRepo(
+        requireLocalStorage(),
+        selectedRepo.owner,
+        selectedRepo.name,
+        nextLabels
+      );
+      setLabels(nextLabels);
+      setSelectedLabelNames((current) =>
+        current.includes(createdLabel.name) ? current : [...current, createdLabel.name]
+      );
+      setNewLabelName("");
+      setNotice({
+        kind: "success",
+        message: `Created label ${createdLabel.name}.`
+      });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: getSettingsErrorMessage(error)
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function toggleLabel(labelName: string) {
+    setSelectedLabelNames((current) =>
+      current.includes(labelName)
+        ? current.filter((name) => name !== labelName)
+        : [...current, labelName]
+    );
+  }
+
   function updateR2Field<Key extends keyof R2Settings>(
     key: Key,
     value: R2Settings[Key]
@@ -232,6 +408,132 @@ export function OptionsApp() {
           </button>
         </div>
       </form>
+
+      <section className="settings-panel" aria-labelledby="targeting-heading">
+        <div className="section-heading">
+          <div>
+            <h2 id="targeting-heading">Targeting</h2>
+            <p>Repo access is cached locally after a manual refresh.</p>
+          </div>
+          <span className="status-badge" data-ready={Boolean(selectedRepo)}>
+            {selectedRepo ? selectedRepo.fullName : "No repo selected"}
+          </span>
+        </div>
+
+        <div className="button-row">
+          <button
+            className="primary-action"
+            disabled={busyAction === "repos" || githubToken.trim().length === 0}
+            onClick={() => void handleRefreshRepos()}
+            type="button"
+          >
+            {busyAction === "repos" ? "Refreshing" : "Refresh Repo Access"}
+          </button>
+          {repoCatalog ? (
+            <span className="inline-meta">
+              {countCatalogRepos(repoCatalog)} repos cached
+            </span>
+          ) : null}
+        </div>
+
+        <div className="target-grid">
+          <SearchableDropdown
+            emptyLabel="No owners found"
+            items={(repoCatalog?.owners ?? []).map((group) => ({
+              id: group.owner,
+              label: group.owner,
+              meta: `${group.repos.length} repos`,
+              value: group
+            }))}
+            label="Owner"
+            onSelect={(group) => void handleSelectOwner(group.owner)}
+            placeholder="Search owners"
+            selectedLabel={selectedOwner || "Choose owner"}
+          />
+
+          <SearchableDropdown
+            emptyLabel={selectedOwner ? "No repos found" : "Choose an owner first"}
+            items={(selectedOwnerGroup?.repos ?? []).map((repo) => ({
+              id: repo.fullName,
+              label: repo.name,
+              meta: repo.private ? "Private" : "Public",
+              icon: <VisibilityIcon privateRepo={repo.private} />,
+              value: repo
+            }))}
+            label="Repo"
+            onSelect={(repo) => void handleSelectRepo(repo)}
+            placeholder="Search repos"
+            selectedLabel={selectedRepo?.name ?? "Choose repo"}
+          />
+        </div>
+
+        <div className="label-manager">
+          <div className="section-heading compact-heading">
+            <div>
+              <h3>Labels</h3>
+              <p>
+                {selectedLabelNames.length > 0
+                  ? `${selectedLabelNames.length} selected`
+                  : "No labels selected"}
+              </p>
+            </div>
+            <button
+              disabled={!selectedRepo || busyAction === "labels"}
+              onClick={() => void refreshLabels()}
+              type="button"
+            >
+              {busyAction === "labels" ? "Loading" : "Refresh Labels"}
+            </button>
+          </div>
+
+          <div className="label-list" aria-label="Labels">
+            {labels.length > 0 ? (
+              labels.map((label) => (
+                <button
+                  className="label-chip"
+                  data-selected={selectedLabelNames.includes(label.name)}
+                  key={label.id}
+                  onClick={() => toggleLabel(label.name)}
+                  type="button"
+                >
+                  <span
+                    className="label-swatch"
+                    style={{ backgroundColor: `#${label.color}` }}
+                  />
+                  {label.name}
+                </button>
+              ))
+            ) : (
+              <span className="empty-state">
+                {selectedRepo ? "No labels loaded" : "Choose a repo to load labels"}
+              </span>
+            )}
+          </div>
+
+          <div className="create-label-row">
+            <label className="field">
+              <span>Missing label</span>
+              <input
+                autoComplete="off"
+                onChange={(event) => setNewLabelName(event.target.value)}
+                placeholder="Label name"
+                value={newLabelName}
+              />
+            </label>
+            <button
+              disabled={
+                !selectedRepo ||
+                newLabelName.trim().length === 0 ||
+                busyAction === "create-label"
+              }
+              onClick={() => void handleCreateLabel()}
+              type="button"
+            >
+              {busyAction === "create-label" ? "Creating" : "Create Label"}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <form className="settings-panel" onSubmit={(event) => void handleSaveR2(event)}>
         <div className="section-heading">
@@ -334,6 +636,88 @@ export function OptionsApp() {
       </form>
     </main>
   );
+}
+
+type SearchableItem<T> = {
+  id: string;
+  label: string;
+  meta?: string;
+  icon?: ReactNode;
+  value: T;
+};
+
+type SearchableDropdownProps<T> = {
+  label: string;
+  placeholder: string;
+  selectedLabel: string;
+  emptyLabel: string;
+  items: SearchableItem<T>[];
+  onSelect: (value: T) => void;
+};
+
+function SearchableDropdown<T>({
+  label,
+  placeholder,
+  selectedLabel,
+  emptyLabel,
+  items,
+  onSelect
+}: SearchableDropdownProps<T>) {
+  const [query, setQuery] = useState("");
+  const filteredItems = items.filter((item) =>
+    `${item.label} ${item.meta ?? ""}`.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="searchable-select">
+      <label className="field">
+        <span>{label}</span>
+        <input
+          autoComplete="off"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={placeholder}
+          value={query}
+        />
+      </label>
+      <div className="selected-value">{selectedLabel}</div>
+      <div className="select-list" role="listbox" aria-label={label}>
+        {filteredItems.length > 0 ? (
+          filteredItems.map((item) => (
+            <button
+              className="select-option"
+              key={item.id}
+              onClick={() => {
+                onSelect(item.value);
+                setQuery("");
+              }}
+              type="button"
+            >
+              {item.icon}
+              <span>{item.label}</span>
+              {item.meta ? <small>{item.meta}</small> : null}
+            </button>
+          ))
+        ) : (
+          <span className="empty-state">{emptyLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VisibilityIcon({ privateRepo }: { privateRepo: boolean }) {
+  return (
+    <span
+      aria-label={privateRepo ? "Private repo" : "Public repo"}
+      className="visibility-icon"
+      data-private={privateRepo}
+      role="img"
+    />
+  );
+}
+
+function countCatalogRepos(catalog: RepoCatalogCache): number {
+  return catalog.owners.reduce((total, owner) => total + owner.repos.length, 0);
 }
 
 function getLocalStorage(): LocalSettingsStorage | null {

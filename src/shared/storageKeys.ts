@@ -2,6 +2,8 @@ export const STORAGE_KEYS = {
   githubToken: "githubToken",
   githubLogin: "githubLogin",
   r2Settings: "r2Settings",
+  repoCatalog: "repoCatalog",
+  labelCache: "labelCache",
   lastSuccessfulTarget: "lastSuccessfulTarget"
 } as const;
 
