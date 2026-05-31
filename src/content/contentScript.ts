@@ -1939,6 +1939,36 @@ function baseStyles(): string {
         color: white;
       }
 
+      .primary-action::before {
+        content: "+";
+        font-weight: 900;
+        margin-inline-end: 6px;
+      }
+
+      [data-add-screenshot]::before {
+        content: "+";
+        font-weight: 900;
+        margin-inline-end: 6px;
+      }
+
+      [data-retake-screenshot]::before {
+        content: "";
+        block-size: 10px;
+        border: 2px solid currentColor;
+        border-inline-start-color: transparent;
+        border-radius: 999px;
+        inline-size: 10px;
+        margin-inline-end: 6px;
+      }
+
+      [data-remove-screenshot]::before,
+      [data-cancel]::before,
+      [data-close-crop]::before {
+        content: "x";
+        font-weight: 900;
+        margin-inline-end: 6px;
+      }
+
       label {
         display: grid;
         gap: 6px;

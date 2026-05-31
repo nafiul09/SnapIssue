@@ -159,6 +159,21 @@ dd {
   color: white;
 }
 
+.primary-action::before {
+  content: "+";
+  font-weight: 900;
+  margin-inline-end: 6px;
+}
+
+.actions button:not(.primary-action)::before {
+  content: "";
+  block-size: 10px;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  inline-size: 10px;
+  margin-inline-end: 6px;
+}
+
 .actions button:not(.primary-action) {
   background: color-mix(in srgb, CanvasText 6%, Canvas);
   color: CanvasText;

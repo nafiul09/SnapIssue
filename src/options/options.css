@@ -19,6 +19,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -46,12 +47,14 @@ button:disabled {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
 }
 
 input,
+select,
 textarea {
   background: Canvas;
   border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
@@ -60,7 +63,8 @@ textarea {
   inline-size: 100%;
 }
 
-input {
+input,
+select {
   block-size: 38px;
   padding: 0 10px;
 }
@@ -355,6 +359,12 @@ p {
   background: #2563eb;
   border-color: #2563eb;
   color: white;
+}
+
+.primary-action::before {
+  content: "+";
+  font-weight: 900;
+  margin-inline-end: 6px;
 }
 
 @media (max-width: 640px) {
