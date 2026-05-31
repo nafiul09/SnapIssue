@@ -45,6 +45,7 @@ type LabelCache = Record<string, { labels: GitHubLabel[] }>;
 type IssueDraftState = {
   title: string;
   description: string;
+  editorHtml: string;
   owner: string;
   repo: string;
   labels: GitHubLabel[];
@@ -189,6 +190,7 @@ function renderIssueOverlay(
   const draft: IssueDraftState = {
     title: "",
     description: "",
+    editorHtml: "",
     owner: "",
     repo: "",
     labels: [],
@@ -252,14 +254,26 @@ function bindIssueForm(
     }
   });
 
-  shadow
-    .querySelector("[data-description]")
-    ?.addEventListener("input", (event) => {
-      const target = event.target;
-      if (target instanceof HTMLTextAreaElement) {
-        draft.description = target.value;
+  const editor = shadow.querySelector("[data-editor]");
+  editor?.addEventListener("input", () => {
+    if (editor instanceof HTMLElement) {
+      draft.editorHtml = editor.innerHTML;
+      draft.description = editorHtmlToMarkdown(editor.innerHTML);
+    }
+  });
+
+  shadow.querySelectorAll("[data-editor-command]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const target = event.currentTarget;
+      if (!(target instanceof HTMLButtonElement) || !(editor instanceof HTMLElement)) {
+        return;
       }
+
+      applyEditorCommand(editor, target.dataset.editorCommand ?? "");
+      draft.editorHtml = editor.innerHTML;
+      draft.description = editorHtmlToMarkdown(editor.innerHTML);
     });
+  });
 
   shadow.querySelector("[data-owner]")?.addEventListener("change", (event) => {
     const target = event.target;
@@ -326,7 +340,7 @@ async function submitIssueDraft(
       owner: draft.owner,
       repo: draft.repo,
       title: draft.title,
-      description: draft.description,
+      description: editorHtmlToMarkdown(draft.editorHtml),
       labels: draft.selectedLabels,
       context: {
         url: context.url,
@@ -443,10 +457,32 @@ function buildIssueFormHtml(
           <input data-title type="text" value="${escapeHtml(draft.title)}" />
         </label>
 
-        <label>
-          <span>Description</span>
-          <textarea data-description>${escapeHtml(draft.description)}</textarea>
-        </label>
+        <div>
+          <span class="field-heading">Description</span>
+          <div class="editor-shell">
+            <div class="editor-toolbar" role="toolbar" aria-label="Description formatting">
+              ${editorButton("bold", "B", "Bold")}
+              ${editorButton("italic", "I", "Italic")}
+              ${editorButton("inline-code", "Code", "Inline code")}
+              ${editorButton("code-block", "Block", "Code block")}
+              ${editorButton("bullet-list", "Bullets", "Bullet list")}
+              ${editorButton("numbered-list", "Numbers", "Numbered list")}
+              ${editorButton("task-list", "Tasks", "Task list")}
+              ${editorButton("link", "Link", "Link")}
+              ${editorButton("quote", "Quote", "Quote")}
+              ${editorButton("undo", "Undo", "Undo")}
+              ${editorButton("redo", "Redo", "Redo")}
+            </div>
+            <div
+              class="editor-surface"
+              contenteditable="true"
+              data-editor
+              role="textbox"
+              aria-label="Description"
+              aria-multiline="true"
+            >${draft.editorHtml}</div>
+          </div>
+        </div>
 
         <div>
           <span class="field-heading">Labels</span>
@@ -486,6 +522,12 @@ function buildLabelCheckbox(label: GitHubLabel, draft: IssueDraftState): string 
       ${escapeHtml(label.name)}
     </label>
   `;
+}
+
+function editorButton(command: string, label: string, title: string): string {
+  return `<button type="button" data-editor-command="${command}" title="${escapeHtml(
+    title
+  )}">${escapeHtml(label)}</button>`;
 }
 
 function buildContextDetails(context: CaptureContext): string {
@@ -529,6 +571,156 @@ function validateDraft(draft: IssueDraftState): string | null {
   }
 
   return null;
+}
+
+function applyEditorCommand(editor: HTMLElement, command: string): void {
+  editor.focus();
+
+  if (command === "bold") {
+    document.execCommand("bold");
+    return;
+  }
+  if (command === "italic") {
+    document.execCommand("italic");
+    return;
+  }
+  if (command === "bullet-list") {
+    document.execCommand("insertUnorderedList");
+    return;
+  }
+  if (command === "numbered-list") {
+    document.execCommand("insertOrderedList");
+    return;
+  }
+  if (command === "quote") {
+    document.execCommand("formatBlock", false, "blockquote");
+    return;
+  }
+  if (command === "code-block") {
+    document.execCommand("formatBlock", false, "pre");
+    return;
+  }
+  if (command === "undo") {
+    document.execCommand("undo");
+    return;
+  }
+  if (command === "redo") {
+    document.execCommand("redo");
+    return;
+  }
+  if (command === "inline-code") {
+    wrapSelection("code");
+    return;
+  }
+  if (command === "task-list") {
+    document.execCommand(
+      "insertHTML",
+      false,
+      '<ul data-task-list="true"><li><input type="checkbox" disabled> Task</li></ul>'
+    );
+    return;
+  }
+  if (command === "link") {
+    const url = window.prompt("Link URL");
+    if (url) {
+      document.execCommand("createLink", false, url);
+    }
+  }
+}
+
+function wrapSelection(tagName: string): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  const wrapper = document.createElement(tagName);
+  wrapper.append(range.extractContents());
+  range.insertNode(wrapper);
+  selection.removeAllRanges();
+  const nextRange = document.createRange();
+  nextRange.selectNodeContents(wrapper);
+  selection.addRange(nextRange);
+}
+
+function editorHtmlToMarkdown(html: string): string {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  return markdownFromNodes(Array.from(template.content.childNodes)).trim();
+}
+
+function markdownFromNodes(nodes: Node[]): string {
+  return nodes.map(markdownFromNode).join("");
+}
+
+function markdownFromNode(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent ?? "";
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return "";
+  }
+
+  const children = () => markdownFromNodes(Array.from(node.childNodes));
+  const tagName = node.tagName.toLowerCase();
+
+  if (tagName === "strong" || tagName === "b") {
+    return `**${children()}**`;
+  }
+  if (tagName === "em" || tagName === "i") {
+    return `*${children()}*`;
+  }
+  if (tagName === "code" && node.parentElement?.tagName.toLowerCase() !== "pre") {
+    return `\`${children()}\``;
+  }
+  if (tagName === "pre") {
+    return `\n\n\`\`\`\n${node.textContent?.trim() ?? ""}\n\`\`\`\n\n`;
+  }
+  if (tagName === "a") {
+    return `[${children()}](${node.getAttribute("href") ?? ""})`;
+  }
+  if (tagName === "blockquote") {
+    return `\n\n${children()
+      .trim()
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n")}\n\n`;
+  }
+  if (tagName === "ul") {
+    return `\n${Array.from(node.children)
+      .map((child) => listItemToMarkdown(child, node.hasAttribute("data-task-list")))
+      .join("")}\n`;
+  }
+  if (tagName === "ol") {
+    return `\n${Array.from(node.children)
+      .map((child, index) => `${index + 1}. ${markdownFromNode(child).trim()}\n`)
+      .join("")}\n`;
+  }
+  if (tagName === "li") {
+    return children();
+  }
+  if (tagName === "br") {
+    return "\n";
+  }
+  if (tagName === "p" || tagName === "div") {
+    return `${children().trim()}\n\n`;
+  }
+
+  return children();
+}
+
+function listItemToMarkdown(child: Element, taskList: boolean): string {
+  const text = markdownFromNode(child).replace(/^\s+/, "").trim();
+  if (taskList || child.querySelector("input[type='checkbox']")) {
+    const checked = child.querySelector("input[type='checkbox']:checked")
+      ? "x"
+      : " ";
+    return `- [${checked}] ${text.replace(/^Task\s*/, "Task")}\n`;
+  }
+
+  return `- ${text}\n`;
 }
 
 function buildCaptureContext(
@@ -802,6 +994,58 @@ function baseStyles(): string {
         min-block-size: 92px;
         padding: 9px;
         resize: vertical;
+      }
+
+      .editor-shell {
+        border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+        border-radius: 8px;
+        display: grid;
+        overflow: hidden;
+      }
+
+      .editor-toolbar {
+        background: color-mix(in srgb, CanvasText 4%, Canvas);
+        border-block-end: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 6px;
+      }
+
+      .editor-toolbar button {
+        min-block-size: 28px;
+        padding: 0 8px;
+      }
+
+      .editor-surface {
+        background: Canvas;
+        color: CanvasText;
+        font-size: 13px;
+        line-height: 1.5;
+        min-block-size: 116px;
+        outline: none;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+
+      .editor-surface:empty::before {
+        color: color-mix(in srgb, CanvasText 46%, transparent);
+        content: "Write the issue description";
+      }
+
+      .editor-surface code {
+        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        border-radius: 4px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        padding: 1px 4px;
+      }
+
+      .editor-surface pre {
+        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        border-radius: 6px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        overflow: auto;
+        padding: 8px;
       }
 
       .form-grid {
