@@ -43,6 +43,13 @@ import {
   sortLabels
 } from "../shared/targetingStorage";
 
+const GITHUB_FINE_GRAINED_TOKEN_URL =
+  "https://github.com/settings/personal-access-tokens/new";
+const GITHUB_FINE_GRAINED_PERMISSIONS_URL =
+  "https://docs.github.com/en/rest/overview/permissions-required-for-fine-grained-personal-access-tokens";
+const CLOUDFLARE_R2_S3_TOKENS_URL =
+  "https://developers.cloudflare.com/r2/get-started/s3/";
+
 type Notice = {
   kind: "success" | "error";
   message: string;
@@ -442,6 +449,34 @@ export function OptionsApp() {
           </span>
         </div>
 
+        <div className="setup-guide" aria-label="GitHub token setup guide">
+          <div>
+            <h3>Fine-grained token guide</h3>
+            <ol>
+              <li>Create a fine-grained token for your personal account or organization.</li>
+              <li>Set repository access to the repos where SnapIssue can create issues.</li>
+              <li>Grant repository permission: Issues, Read and write.</li>
+              <li>Copy the token once, paste it here, save, then refresh repo access.</li>
+            </ol>
+          </div>
+          <div className="guide-links">
+            <a
+              href={GITHUB_FINE_GRAINED_TOKEN_URL}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Create token
+            </a>
+            <a
+              href={GITHUB_FINE_GRAINED_PERMISSIONS_URL}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Permission docs
+            </a>
+          </div>
+        </div>
+
         <label className="field">
           <span>Token</span>
           <input
@@ -607,6 +642,28 @@ export function OptionsApp() {
 
         <div className="warning-block">
           R2 imports can contain upload credentials. Only import JSON from a source you trust.
+        </div>
+
+        <div className="setup-guide" aria-label="Cloudflare R2 setup guide">
+          <div>
+            <h3>R2 setup guide</h3>
+            <ol>
+              <li>Create or choose the bucket that will store SnapIssue screenshots.</li>
+              <li>Create an R2 S3 API token with Object Read &amp; Write access.</li>
+              <li>Scope the token to the screenshot bucket when possible.</li>
+              <li>Copy Account ID, bucket name, Access Key ID, and Secret Access Key.</li>
+              <li>Use a public bucket URL or custom domain as the public base URL.</li>
+            </ol>
+          </div>
+          <div className="guide-links">
+            <a
+              href={CLOUDFLARE_R2_S3_TOKENS_URL}
+              rel="noreferrer"
+              target="_blank"
+            >
+              R2 S3 guide
+            </a>
+          </div>
         </div>
 
         <div className="field-grid">
