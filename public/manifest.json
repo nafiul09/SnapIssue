@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "SnapIssue",
+  "version": "0.1.0",
+  "description": "Create GitHub issues from the current browser page.",
+  "action": {
+    "default_title": "SnapIssue",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs",
+    "clipboardWrite"
+  ],
+  "commands": {
+    "capture_issue": {
+      "suggested_key": {
+        "default": "Alt+Shift+I",
+        "mac": "Alt+Shift+I"
+      },
+      "description": "Capture issue from the active tab"
+    }
+  }
+}

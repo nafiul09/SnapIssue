@@ -1,0 +1,94 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: Canvas;
+  color: CanvasText;
+  margin: 0;
+}
+
+.options-shell {
+  display: grid;
+  gap: 16px;
+  inline-size: min(720px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 32px 0;
+}
+
+.options-header {
+  border-block-end: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  padding-block-end: 16px;
+}
+
+.eyebrow,
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.eyebrow {
+  color: color-mix(in srgb, CanvasText 56%, transparent);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+h2 {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+p {
+  color: color-mix(in srgb, CanvasText 68%, transparent);
+  font-size: 13px;
+  line-height: 1.55;
+  margin-block-start: 4px;
+}
+
+.settings-panel {
+  align-items: center;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 8px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.status-badge {
+  background: color-mix(in srgb, #dc2626 10%, Canvas);
+  border: 1px solid color-mix(in srgb, #dc2626 22%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, #b91c1c 76%, CanvasText);
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 750;
+  padding: 6px 9px;
+}
+
+@media (max-width: 560px) {
+  .settings-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .status-badge {
+    align-self: start;
+  }
+}
