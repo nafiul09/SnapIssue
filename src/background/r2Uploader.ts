@@ -1,5 +1,13 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client
+} from "@aws-sdk/client-s3";
 import type { R2Settings } from "../shared/r2Settings";
+
+const TEST_WEBP_DATA_URL =
+  "data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA";
 
 export type R2UploadInput = {
   settings: R2Settings;
@@ -15,9 +23,21 @@ export type R2UploadInput = {
   };
 };
 
+type R2TestClient = {
+  send(
+    command: PutObjectCommand | HeadObjectCommand | DeleteObjectCommand
+  ): Promise<unknown>;
+};
+
 export type R2UploadResult = {
   key: string;
   publicUrl: string;
+};
+
+export type R2ConnectionTestResult = {
+  key: string;
+  publicUrl: string;
+  deleted: boolean;
 };
 
 export async function uploadWebPScreenshotToR2({
@@ -54,6 +74,58 @@ export async function uploadWebPScreenshotToR2({
     key,
     publicUrl: `${settings.publicBaseUrl}/${key}`
   };
+}
+
+export async function testR2Connection({
+  settings,
+  now = new Date(),
+  uuid = crypto.randomUUID(),
+  client = createR2Client(settings)
+}: {
+  settings: R2Settings;
+  now?: Date;
+  uuid?: string;
+  client?: R2TestClient;
+}): Promise<R2ConnectionTestResult> {
+  const key = buildR2TestObjectKey({ now, uuid });
+  const body = dataUrlToUint8Array(TEST_WEBP_DATA_URL);
+  const objectInput = {
+    Bucket: settings.bucketName,
+    Key: key
+  };
+
+  await client.send(
+    new PutObjectCommand({
+      ...objectInput,
+      Body: body,
+      ContentType: "image/webp"
+    })
+  );
+
+  try {
+    await client.send(new HeadObjectCommand(objectInput));
+  } finally {
+    await client.send(new DeleteObjectCommand(objectInput));
+  }
+
+  return {
+    key,
+    publicUrl: `${settings.publicBaseUrl}/${key}`,
+    deleted: true
+  };
+}
+
+export function buildR2TestObjectKey({
+  now,
+  uuid
+}: {
+  now: Date;
+  uuid: string;
+}): string {
+  const year = String(now.getUTCFullYear());
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+
+  return ["snapissue-test", year, month, `${uuid}.webp`].join("/");
 }
 
 export function buildR2ObjectKey({

@@ -461,6 +461,31 @@ p {
   margin-inline-end: 6px;
 }
 
+.test-action::before {
+  block-size: 10px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  content: "";
+  inline-size: 10px;
+  margin-inline-end: 6px;
+}
+
+.test-result {
+  background: color-mix(in srgb, var(--si-success) 10%, var(--si-panel));
+  border: 1px solid color-mix(in srgb, var(--si-success) 24%, transparent);
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--si-success) 72%, var(--si-text));
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  padding: 9px 10px;
+}
+
+.test-result a {
+  color: inherit;
+  font-weight: 800;
+}
+
 @media (max-width: 640px) {
   .section-heading {
     align-items: stretch;

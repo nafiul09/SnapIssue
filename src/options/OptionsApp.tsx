@@ -1,4 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { testR2Connection } from "../background/r2Uploader";
 import {
   GitHubValidationError,
   createGitHubLabel,
@@ -17,6 +18,7 @@ import {
 import {
   buildR2SettingsExport,
   emptyR2Settings,
+  normalizeR2Settings,
   parseR2SettingsImport,
   R2SettingsError,
   type R2Settings
@@ -58,6 +60,7 @@ type Notice = {
 type BusyAction =
   | "github"
   | "r2"
+  | "r2-test"
   | "import"
   | "clear-github"
   | "clear-r2"
@@ -74,6 +77,7 @@ export function OptionsApp() {
     emptyR2Settings()
   );
   const [r2Json, setR2Json] = useState("");
+  const [r2TestUrl, setR2TestUrl] = useState("");
   const [repoCatalog, setRepoCatalog] = useState<RepoCatalogCache | null>(null);
   const [selectedOwner, setSelectedOwner] = useState("");
   const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
@@ -180,6 +184,33 @@ export function OptionsApp() {
     }
   }
 
+  async function handleTestR2() {
+    setBusyAction("r2-test");
+    setNotice(null);
+    setR2TestUrl("");
+
+    try {
+      const normalized = normalizeR2Settings(r2Settings);
+      setR2Settings(normalized);
+
+      const result = await testR2Connection({ settings: normalized });
+      setR2TestUrl(result.publicUrl);
+      setNotice({
+        kind: "success",
+        message: result.deleted
+          ? "R2 test passed. Dummy image uploaded, verified, and deleted."
+          : "R2 test uploaded and verified the dummy image, but cleanup did not complete."
+      });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: getSettingsErrorMessage(error)
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function handleClearR2() {
     setBusyAction("clear-r2");
     setNotice(null);
@@ -188,6 +219,7 @@ export function OptionsApp() {
       await clearR2Settings(requireLocalStorage());
       setR2Settings(emptyR2Settings());
       setR2Json("");
+      setR2TestUrl("");
       setNotice({ kind: "success", message: "R2 settings cleared." });
     } catch (error) {
       setNotice({
@@ -720,6 +752,14 @@ export function OptionsApp() {
           <button className="primary-action" disabled={busyAction === "r2"} type="submit">
             {busyAction === "r2" ? "Saving" : "Save R2 Settings"}
           </button>
+          <button
+            className="test-action"
+            disabled={busyAction === "r2-test" || !r2Configured}
+            onClick={() => void handleTestR2()}
+            type="button"
+          >
+            {busyAction === "r2-test" ? "Testing" : "Test R2"}
+          </button>
           <button onClick={handleExportR2} type="button">
             Export JSON
           </button>
@@ -731,6 +771,18 @@ export function OptionsApp() {
             Clear
           </button>
         </div>
+
+        {r2TestUrl ? (
+          <p className="test-result">
+            Last test URL:
+            {" "}
+            <a href={r2TestUrl} rel="noreferrer" target="_blank">
+              {r2TestUrl}
+            </a>
+            {" "}
+            (deleted after verification)
+          </p>
+        ) : null}
 
         <label className="field">
           <span>R2 import / export JSON</span>

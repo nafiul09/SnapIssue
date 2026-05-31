@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildR2TestObjectKey,
   buildR2ObjectKey,
   dataUrlToUint8Array,
+  testR2Connection,
   uploadWebPScreenshotToR2
 } from "./r2Uploader";
 
@@ -60,6 +62,94 @@ describe("r2Uploader", () => {
         ContentType: "image/webp"
       })
     );
+  });
+
+  it("tests R2 access by uploading, verifying, and deleting a dummy image", async () => {
+    const send = vi.fn(async (_command: unknown) => undefined);
+    const client = {
+      send
+    };
+
+    await expect(
+      testR2Connection({
+        settings,
+        now: new Date("2026-05-31T12:00:00.000Z"),
+        uuid: "test-uuid",
+        client
+      })
+    ).resolves.toEqual({
+      key: "snapissue-test/2026/05/test-uuid.webp",
+      publicUrl: "https://assets.example.com/snapissue-test/2026/05/test-uuid.webp",
+      deleted: true
+    });
+
+    expect(client.send).toHaveBeenCalledTimes(3);
+    expect(
+      send.mock.calls.map(
+        ([command]) => (command as { constructor: { name: string } }).constructor.name
+      )
+    ).toEqual(["PutObjectCommand", "HeadObjectCommand", "DeleteObjectCommand"]);
+    expect(
+      send.mock.calls.map(([command]) => (command as { input: unknown }).input)
+    ).toEqual([
+      expect.objectContaining({
+        Bucket: "bucket",
+        Key: "snapissue-test/2026/05/test-uuid.webp",
+        ContentType: "image/webp"
+      }),
+      {
+        Bucket: "bucket",
+        Key: "snapissue-test/2026/05/test-uuid.webp"
+      },
+      {
+        Bucket: "bucket",
+        Key: "snapissue-test/2026/05/test-uuid.webp"
+      }
+    ]);
+  });
+
+  it("builds scoped R2 test object keys", () => {
+    expect(
+      buildR2TestObjectKey({
+        now: new Date("2026-06-01T00:00:00.000Z"),
+        uuid: "abc"
+      })
+    ).toBe("snapissue-test/2026/06/abc.webp");
+  });
+
+  it("cleans up the dummy image when verification fails after upload", async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("head failed"))
+      .mockResolvedValueOnce(undefined);
+    const client = {
+      send
+    };
+
+    await expect(
+      testR2Connection({
+        settings,
+        now: new Date("2026-05-31T12:00:00.000Z"),
+        uuid: "cleanup-uuid",
+        client
+      })
+    ).rejects.toThrow("head failed");
+
+    expect(send.mock.calls.map(([command]) => (command as { input: unknown }).input)).toEqual([
+      expect.objectContaining({
+        Bucket: "bucket",
+        Key: "snapissue-test/2026/05/cleanup-uuid.webp"
+      }),
+      {
+        Bucket: "bucket",
+        Key: "snapissue-test/2026/05/cleanup-uuid.webp"
+      },
+      {
+        Bucket: "bucket",
+        Key: "snapissue-test/2026/05/cleanup-uuid.webp"
+      }
+    ]);
   });
 
   it("rejects non-WebP data URLs", () => {
