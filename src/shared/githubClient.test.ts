@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GitHubApiError,
   GitHubValidationError,
+  createGitHubIssue,
   createGitHubLabel,
   listAccessibleRepos,
   listGitHubLabels,
@@ -135,6 +136,47 @@ describe("GitHub repo and label APIs", () => {
     );
     await expect(listAccessibleRepos("token-value", fetchImpl)).rejects.not.toThrow(
       "token-value"
+    );
+  });
+
+  it("creates context-only GitHub issues with selected labels", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          number: 123,
+          html_url: "https://github.com/acme/web/issues/123"
+        }),
+        { status: 201 }
+      )
+    );
+
+    await expect(
+      createGitHubIssue(
+        "token-value",
+        "acme",
+        "web",
+        {
+          title: "Broken button",
+          body: "Body",
+          labels: ["bug", "frontend"]
+        },
+        fetchImpl
+      )
+    ).resolves.toEqual({
+      number: 123,
+      html_url: "https://github.com/acme/web/issues/123"
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/repos/acme/web/issues",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "Broken button",
+          body: "Body",
+          labels: ["bug", "frontend"]
+        })
+      })
     );
   });
 });

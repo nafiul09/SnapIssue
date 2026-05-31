@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { buildContextOnlyIssueBody } from "./issueBody";
+
+const context = {
+  url: "https://example.com/page",
+  title: "Example Page",
+  capturedAt: "2026-05-31T12:00:00.000Z",
+  viewportWidth: 1440,
+  viewportHeight: 900,
+  clickX: 321,
+  clickY: 222
+};
+
+describe("buildContextOnlyIssueBody", () => {
+  it("puts the user description before generated context", () => {
+    expect(
+      buildContextOnlyIssueBody({
+        description: "The primary button is clipped.",
+        context
+      })
+    ).toBe(`The primary button is clipped.
+
+## Context
+
+- Page: https://example.com/page
+- Title: Example Page
+- Captured at: 2026-05-31T12:00:00.000Z
+- Viewport: 1440x900
+- Click: x=321, y=222
+`);
+  });
+
+  it("creates a valid context-only body when description is empty", () => {
+    expect(
+      buildContextOnlyIssueBody({
+        description: "  ",
+        context
+      }).startsWith("## Context")
+    ).toBe(true);
+  });
+});

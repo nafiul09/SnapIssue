@@ -11,6 +11,17 @@ export type GitHubLabel = {
   description: string | null;
 };
 
+export type GitHubIssue = {
+  number: number;
+  html_url: string;
+};
+
+export type CreateIssueInput = {
+  title: string;
+  body: string;
+  labels: string[];
+};
+
 export type FetchLike = (
   input: RequestInfo | URL,
   init?: RequestInit
@@ -124,6 +135,35 @@ export async function createGitHubLabel(
       body: JSON.stringify({
         name: trimmedName,
         color
+      })
+    }
+  );
+}
+
+export async function createGitHubIssue(
+  token: string,
+  owner: string,
+  repo: string,
+  issue: CreateIssueInput,
+  fetchImpl: FetchLike = fetch
+): Promise<GitHubIssue> {
+  const title = issue.title.trim();
+  if (!title) {
+    throw new GitHubApiError("Issue title is required.");
+  }
+
+  return githubJson<GitHubIssue>(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+      repo
+    )}/issues`,
+    token,
+    fetchImpl,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        title,
+        body: issue.body,
+        labels: issue.labels
       })
     }
   );
