@@ -4,6 +4,7 @@ import {
   type CaptureSource,
   type ContentStartCaptureMessage
 } from "../shared/runtimeMessages";
+import { STORAGE_KEYS } from "../shared/storageKeys";
 
 export const CONTENT_SCRIPT_FILE = "assets/contentScript.js";
 
@@ -23,6 +24,15 @@ export type CaptureBrowserApi = {
       files: string[];
     }): Promise<unknown>;
   };
+  storage?: {
+    local: {
+      remove(keys: string[]): Promise<void>;
+      set(items: Record<string, unknown>): Promise<void>;
+    };
+  };
+  action?: {
+    openPopup?: () => Promise<void>;
+  };
 };
 
 export async function startCaptureFromActiveTab(
@@ -35,18 +45,22 @@ export async function startCaptureFromActiveTab(
   });
 
   if (!activeTab?.id) {
-    return {
+    const result = {
       ok: false,
       reason: "SnapIssue needs an active tab before capture can start."
-    };
+    } as const;
+    await publishCaptureFailure(browserApi, result.reason, source);
+    return result;
   }
 
   const blockReason = getCaptureBlockReason(activeTab.url);
   if (blockReason) {
-    return {
+    const result = {
       ok: false,
       reason: blockReason
-    };
+    } as const;
+    await publishCaptureFailure(browserApi, result.reason, source);
+    return result;
   }
 
   await browserApi.scripting.executeScript({
@@ -59,6 +73,7 @@ export async function startCaptureFromActiveTab(
     source
   });
 
+  await browserApi.storage?.local.remove([STORAGE_KEYS.lastCaptureError]);
   return { ok: true };
 }
 
@@ -83,4 +98,24 @@ export function getCaptureBlockReason(url: string | undefined): string | null {
   }
 
   return "Browser and extension pages do not allow capture.";
+}
+
+async function publishCaptureFailure(
+  browserApi: CaptureBrowserApi,
+  reason: string,
+  source: CaptureSource
+): Promise<void> {
+  await browserApi.storage?.local.set({
+    [STORAGE_KEYS.lastCaptureError]: reason
+  });
+
+  if (source !== "command") {
+    return;
+  }
+
+  try {
+    await browserApi.action?.openPopup?.();
+  } catch {
+    // Some Chromium builds do not expose action.openPopup to extensions.
+  }
 }

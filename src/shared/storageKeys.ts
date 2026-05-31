@@ -4,6 +4,7 @@ export const STORAGE_KEYS = {
   r2Settings: "r2Settings",
   repoCatalog: "repoCatalog",
   labelCache: "labelCache",
+  lastCaptureError: "lastCaptureError",
   lastSuccessfulTarget: "lastSuccessfulTarget"
 } as const;
 

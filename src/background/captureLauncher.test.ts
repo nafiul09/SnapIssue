@@ -6,6 +6,7 @@ import {
   type CaptureBrowserApi
 } from "./captureLauncher";
 import { SNAPISSUE_CONTENT_START_CAPTURE } from "../shared/runtimeMessages";
+import { STORAGE_KEYS } from "../shared/storageKeys";
 
 describe("getCaptureBlockReason", () => {
   it("allows ordinary web pages", () => {
@@ -45,6 +46,9 @@ describe("startCaptureFromActiveTab", () => {
       type: SNAPISSUE_CONTENT_START_CAPTURE,
       source: "command"
     });
+    expect(api.storage?.local.remove).toHaveBeenCalledWith([
+      STORAGE_KEYS.lastCaptureError
+    ]);
   });
 
   it("returns a graceful result without injecting on protected pages", async () => {
@@ -57,6 +61,18 @@ describe("startCaptureFromActiveTab", () => {
 
     expect(api.scripting.executeScript).not.toHaveBeenCalled();
     expect(api.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(api.storage?.local.set).toHaveBeenCalledWith({
+      [STORAGE_KEYS.lastCaptureError]:
+        "Browser and extension pages do not allow capture."
+    });
+  });
+
+  it("tries to open the popup for shortcut failures", async () => {
+    const api = createBrowserApi("chrome://extensions");
+
+    await startCaptureFromActiveTab(api, "command");
+
+    expect(api.action?.openPopup).toHaveBeenCalled();
   });
 });
 
@@ -68,6 +84,15 @@ function createBrowserApi(url: string): CaptureBrowserApi {
     },
     scripting: {
       executeScript: vi.fn(async () => undefined)
+    },
+    storage: {
+      local: {
+        remove: vi.fn(async () => undefined),
+        set: vi.fn(async () => undefined)
+      }
+    },
+    action: {
+      openPopup: vi.fn(async () => undefined)
     }
   };
 }

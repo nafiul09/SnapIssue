@@ -5,7 +5,7 @@ import {
   type CaptureResult
 } from "../shared/runtimeMessages";
 import { deriveSetupStatus, type SetupStatus } from "../shared/settingsStatus";
-import { SETTINGS_STATUS_STORAGE_KEYS } from "../shared/storageKeys";
+import { SETTINGS_STATUS_STORAGE_KEYS, STORAGE_KEYS } from "../shared/storageKeys";
 
 type CaptureState = "idle" | "starting" | "started" | "failed";
 
@@ -17,7 +17,13 @@ export function PopupApp() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadSetupStatus().then(setSetupStatus);
+    void loadPopupState().then((popupState) => {
+      setSetupStatus(popupState.setupStatus);
+      if (popupState.lastCaptureError) {
+        setCaptureState("failed");
+        setMessage(popupState.lastCaptureError);
+      }
+    });
   }, []);
 
   async function handleCaptureIssue() {
@@ -38,6 +44,9 @@ export function PopupApp() {
       } satisfies CaptureRequestMessage)) as CaptureResult | undefined;
 
       if (response?.ok) {
+        await globalThis.chrome?.storage?.local?.remove([
+          STORAGE_KEYS.lastCaptureError
+        ]);
         setCaptureState("started");
         setMessage("Capture started");
         window.close();
@@ -110,13 +119,30 @@ export function PopupApp() {
   );
 }
 
-async function loadSetupStatus(): Promise<SetupStatus> {
+type PopupState = {
+  setupStatus: SetupStatus;
+  lastCaptureError: string | null;
+};
+
+async function loadPopupState(): Promise<PopupState> {
   if (!globalThis.chrome?.storage?.local) {
-    return deriveSetupStatus({});
+    return {
+      setupStatus: deriveSetupStatus({}),
+      lastCaptureError: null
+    };
   }
 
   const snapshot = await globalThis.chrome.storage.local.get([
-    ...SETTINGS_STATUS_STORAGE_KEYS
+    ...SETTINGS_STATUS_STORAGE_KEYS,
+    STORAGE_KEYS.lastCaptureError
   ]);
-  return deriveSetupStatus(snapshot);
+  const lastCaptureError = snapshot[STORAGE_KEYS.lastCaptureError];
+
+  return {
+    setupStatus: deriveSetupStatus(snapshot),
+    lastCaptureError:
+      typeof lastCaptureError === "string" && lastCaptureError.length > 0
+        ? lastCaptureError
+        : null
+  };
 }
