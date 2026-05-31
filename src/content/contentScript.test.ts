@@ -11,6 +11,8 @@ describe("contentScript capture overlay", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
     document.title = "Example Page";
     Reflect.deleteProperty(window, "__snapissueContentInstalled");
@@ -223,10 +225,161 @@ describe("contentScript capture overlay", () => {
     expect(payload.description).toContain("> Quote");
     expect(payload.description).not.toContain("<strong>");
   });
+
+  it("adds, reorders, and submits multiple screenshots in the chosen order", async () => {
+    installCanvasCaptureFakes();
+    let webpCounter = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(() => {
+      webpCounter += 1;
+      return `data:image/webp;base64,shot-${webpCounter}`;
+    });
+    sendMessage.mockImplementation(async (message: { type?: string }) =>
+      message.type === "snapissue:capture-visible-tab"
+        ? {
+            ok: true,
+            dataUrl: "data:image/png;base64,source"
+          }
+        : {
+            ok: true,
+            issueNumber: 123,
+            issueUrl: "https://github.com/acme/web/issues/123"
+          }
+    );
+    storageValues = {
+      repoCatalog: {
+        owners: [
+          {
+            owner: "acme",
+            repos: [
+              {
+                owner: "acme",
+                name: "web",
+                fullName: "acme/web",
+                private: false
+              }
+            ]
+          }
+        ]
+      },
+      labelCache: {}
+    };
+
+    runtimeListener?.({
+      type: "snapissue:content-start-capture",
+      source: "popup"
+    });
+    const host = document.getElementById("snapissue-overlay-host");
+    host?.shadowRoot
+      ?.querySelector("[data-capture-layer]")
+      ?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          clientX: 10,
+          clientY: 20
+        })
+      );
+
+    await flushAsyncWork();
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(host?.shadowRoot?.querySelectorAll(".screenshot-item")).toHaveLength(1);
+
+    host?.shadowRoot
+      ?.querySelector("[data-add-screenshot]")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(host?.shadowRoot?.querySelector("[data-capture-layer]")).not.toBeNull();
+    expect(host?.shadowRoot?.querySelector("[data-form]")).toBeNull();
+
+    host?.shadowRoot
+      ?.querySelector("[data-capture-layer]")
+      ?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          clientX: 30,
+          clientY: 40
+        })
+      );
+
+    await flushAsyncWork();
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(host?.shadowRoot?.querySelectorAll(".screenshot-item")).toHaveLength(2);
+    const moveLeft = Array.from(
+      host?.shadowRoot?.querySelectorAll("[data-move-screenshot='left']") ?? []
+    ).find((button) => button instanceof HTMLButtonElement && !button.disabled);
+    moveLeft?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const owner = host?.shadowRoot?.querySelector("[data-owner]");
+    if (owner instanceof HTMLSelectElement) {
+      owner.value = "acme";
+      owner.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    const repo = host?.shadowRoot?.querySelector("[data-repo]");
+    if (repo instanceof HTMLSelectElement) {
+      repo.value = "web";
+      repo.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    const title = host?.shadowRoot?.querySelector("[data-title]");
+    if (title instanceof HTMLInputElement) {
+      title.value = "Broken flow";
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    host?.shadowRoot
+      ?.querySelector("[data-form]")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await Promise.resolve();
+
+    const payload = sendMessage.mock.calls.find(
+      ([message]) => message.type === "snapissue:create-context-issue"
+    )?.[0].payload;
+    if (!payload) {
+      throw new Error("Create issue payload was not sent.");
+    }
+    expect(payload.screenshots).toHaveLength(2);
+    expect(payload.screenshots[0]).toMatchObject({
+      dataUrl: "data:image/webp;base64,shot-2",
+      clickX: 30,
+      clickY: 40
+    });
+    expect(payload.screenshots[1]).toMatchObject({
+      dataUrl: "data:image/webp;base64,shot-1",
+      clickX: 10,
+      clickY: 20
+    });
+  });
 });
 
 function flushAsyncWork(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
+}
+
+function installCanvasCaptureFakes(): void {
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    naturalWidth = 800;
+    naturalHeight = 600;
+
+    set src(_value: string) {
+      setTimeout(() => this.onload?.(), 0);
+    }
+  }
+
+  vi.stubGlobal("Image", FakeImage);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    stroke: vi.fn(),
+    set lineWidth(_value: number) {},
+    set strokeStyle(_value: string) {}
+  } as unknown as CanvasRenderingContext2D);
 }

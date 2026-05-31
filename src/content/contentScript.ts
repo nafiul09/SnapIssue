@@ -5,6 +5,7 @@ const HOST_ID = "snapissue-overlay-host";
 const STORAGE_KEY_REPO_CATALOG = "repoCatalog";
 const STORAGE_KEY_LABEL_CACHE = "labelCache";
 const STORAGE_KEY_LAST_SUCCESSFUL_TARGET = "lastSuccessfulTarget";
+const MAX_SCREENSHOTS = 5;
 
 type CaptureSource = "popup" | "command";
 
@@ -51,9 +52,10 @@ type IssueDraftState = {
   repo: string;
   labels: GitHubLabel[];
   selectedLabels: string[];
-  screenshot: CapturedScreenshot | null;
+  screenshots: DraftScreenshot[];
   captureWarning: string | null;
   cropOpen: boolean;
+  activeCropId: string | null;
   crop: CropRect | null;
   repoCatalog: RepoCatalogCache | null;
   labelCache: LabelCache;
@@ -68,6 +70,10 @@ type CapturedScreenshot = {
   height: number;
   clickX: number;
   clickY: number;
+};
+
+type DraftScreenshot = CapturedScreenshot & {
+  id: string;
 };
 
 type CropRect = {
@@ -102,6 +108,13 @@ type CreateIssueResponse =
 type SnapWindow = Window & {
   __snapissueContentInstalled?: boolean;
 };
+
+type CaptureModeOptions = {
+  onCancel: () => void;
+  onComplete: (context: CaptureContext, screenshot: CapturedScreenshot | null) => void;
+};
+
+type StartCaptureMode = (options: CaptureModeOptions) => void;
 
 const snapWindow = window as SnapWindow;
 
@@ -152,10 +165,10 @@ function mountCaptureOverlay(source: CaptureSource): void {
     host.remove();
   };
 
-  const activateCaptureMode = () => {
+  const startCaptureMode: StartCaptureMode = ({ onCancel, onComplete }) => {
     renderCaptureMode(shadow);
 
-    shadow.querySelector("[data-cancel]")?.addEventListener("click", close, {
+    shadow.querySelector("[data-cancel]")?.addEventListener("click", onCancel, {
       signal: abortController.signal
     });
 
@@ -178,10 +191,10 @@ function mountCaptureOverlay(source: CaptureSource): void {
         renderCaptureProcessing(shadow);
         void captureMarkedScreenshot(context)
           .then((screenshot) => {
-            renderIssueOverlay(shadow, close, activateCaptureMode, context, screenshot);
+            onComplete(context, screenshot);
           })
           .catch(() => {
-            renderIssueOverlay(shadow, close, activateCaptureMode, context, null);
+            onComplete(context, null);
           });
       },
       {
@@ -190,7 +203,22 @@ function mountCaptureOverlay(source: CaptureSource): void {
     );
   };
 
-  activateCaptureMode();
+  const startInitialCapture = () => {
+    startCaptureMode({
+      onCancel: close,
+      onComplete: (context, screenshot) => {
+        renderIssueOverlay(
+          shadow,
+          close,
+          startCaptureMode,
+          context,
+          screenshot
+        );
+      }
+    });
+  };
+
+  startInitialCapture();
 
   document.addEventListener(
     "keydown",
@@ -239,10 +267,11 @@ function renderCaptureProcessing(shadow: ShadowRoot): void {
 function renderIssueOverlay(
   shadow: ShadowRoot,
   close: () => void,
-  retake: () => void,
+  startCaptureMode: StartCaptureMode,
   context: CaptureContext,
   screenshot: CapturedScreenshot | null
 ): void {
+  const initialScreenshot = screenshot ? createDraftScreenshot(screenshot) : null;
   const draft: IssueDraftState = {
     title: "",
     description: "",
@@ -251,12 +280,11 @@ function renderIssueOverlay(
     repo: "",
     labels: [],
     selectedLabels: [],
-    screenshot,
+    screenshots: initialScreenshot ? [initialScreenshot] : [],
     captureWarning: screenshot ? null : "Screenshot capture failed. The issue can still be created.",
     cropOpen: false,
-    crop: screenshot
-      ? { x: 0, y: 0, width: screenshot.width, height: screenshot.height }
-      : null,
+    activeCropId: null,
+    crop: null,
     repoCatalog: null,
     labelCache: {},
     error: null,
@@ -265,7 +293,14 @@ function renderIssueOverlay(
 
   const render = () => {
     shadow.innerHTML = buildIssueFormHtml(context, draft);
-    bindIssueForm(shadow, close, retake, context, draft, render);
+    bindIssueForm(
+      shadow,
+      close,
+      startCaptureMode,
+      context,
+      draft,
+      render
+    );
   };
 
   render();
@@ -301,49 +336,109 @@ async function hydrateDraftTargets(draft: IssueDraftState): Promise<void> {
 function bindIssueForm(
   shadow: ShadowRoot,
   close: () => void,
-  retake: () => void,
+  startCaptureMode: StartCaptureMode,
   context: CaptureContext,
   draft: IssueDraftState,
   render: () => void
 ): void {
   shadow.querySelector("[data-cancel]")?.addEventListener("click", close);
-  shadow.querySelectorAll("[data-retake]").forEach((button) => {
-    button.addEventListener("click", retake);
-  });
-  shadow.querySelector("[data-open-crop]")?.addEventListener("click", () => {
-    if (!draft.screenshot) {
+
+  shadow.querySelector("[data-add-screenshot]")?.addEventListener("click", () => {
+    if (draft.screenshots.length >= MAX_SCREENSHOTS) {
       return;
     }
 
-    draft.cropOpen = true;
-    draft.crop = draft.crop ?? {
-      x: 0,
-      y: 0,
-      width: draft.screenshot.width,
-      height: draft.screenshot.height
-    };
-    render();
+    startDraftScreenshotCapture(startCaptureMode, draft, render, {
+      mode: "add"
+    });
   });
-  shadow.querySelector("[data-remove-screenshot]")?.addEventListener("click", () => {
-    draft.screenshot = null;
-    draft.crop = null;
-    draft.cropOpen = false;
-    draft.captureWarning = null;
-    render();
+
+  shadow.querySelectorAll("[data-open-crop]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const screenshot = getScreenshotFromEvent(event, draft);
+      if (!screenshot) {
+        return;
+      }
+
+      draft.activeCropId = screenshot.id;
+      draft.cropOpen = true;
+      draft.crop = {
+        x: 0,
+        y: 0,
+        width: screenshot.width,
+        height: screenshot.height
+      };
+      render();
+    });
   });
+
+  shadow.querySelectorAll("[data-retake-screenshot]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const screenshot = getScreenshotFromEvent(event, draft);
+      if (!screenshot) {
+        return;
+      }
+
+      startDraftScreenshotCapture(startCaptureMode, draft, render, {
+        mode: "replace",
+        id: screenshot.id
+      });
+    });
+  });
+
+  shadow.querySelectorAll("[data-remove-screenshot]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const screenshot = getScreenshotFromEvent(event, draft);
+      if (!screenshot) {
+        return;
+      }
+
+      draft.screenshots = draft.screenshots.filter((item) => item.id !== screenshot.id);
+      if (draft.activeCropId === screenshot.id) {
+        draft.activeCropId = null;
+        draft.crop = null;
+        draft.cropOpen = false;
+      }
+      draft.captureWarning = null;
+      render();
+    });
+  });
+
+  shadow.querySelectorAll("[data-move-screenshot]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const target = event.currentTarget;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      const screenshot = getScreenshotFromEvent(event, draft);
+      const direction = target.dataset.moveScreenshot;
+      if (!screenshot || (direction !== "left" && direction !== "right")) {
+        return;
+      }
+
+      moveDraftScreenshot(draft, screenshot.id, direction);
+      render();
+    });
+  });
+
   shadow.querySelector("[data-close-crop]")?.addEventListener("click", () => {
     draft.cropOpen = false;
+    draft.activeCropId = null;
+    draft.crop = null;
     render();
   });
   shadow.querySelector("[data-reset-crop]")?.addEventListener("click", () => {
-    if (!draft.screenshot) {
+    const screenshot = getActiveCropScreenshot(draft);
+    if (!screenshot) {
       return;
     }
+
     draft.crop = {
       x: 0,
       y: 0,
-      width: draft.screenshot.width,
-      height: draft.screenshot.height
+      width: screenshot.width,
+      height: screenshot.height
     };
     render();
   });
@@ -422,6 +517,123 @@ function bindIssueForm(
   });
 }
 
+type DraftScreenshotCaptureAction =
+  | {
+      mode: "add";
+    }
+  | {
+      mode: "replace";
+      id: string;
+    };
+
+function startDraftScreenshotCapture(
+  startCaptureMode: StartCaptureMode,
+  draft: IssueDraftState,
+  render: () => void,
+  action: DraftScreenshotCaptureAction
+): void {
+  draft.cropOpen = false;
+  draft.activeCropId = null;
+  draft.crop = null;
+
+  startCaptureMode({
+    onCancel: render,
+    onComplete: (_context, screenshot) => {
+      if (!screenshot) {
+        draft.captureWarning = "Screenshot capture failed. The issue can still be created.";
+        render();
+        return;
+      }
+
+      if (action.mode === "add") {
+        if (draft.screenshots.length < MAX_SCREENSHOTS) {
+          draft.screenshots = [...draft.screenshots, createDraftScreenshot(screenshot)];
+        }
+      } else {
+        draft.screenshots = draft.screenshots.map((item) =>
+          item.id === action.id ? createDraftScreenshot(screenshot, action.id) : item
+        );
+      }
+
+      draft.captureWarning = null;
+      render();
+    }
+  });
+}
+
+function createDraftScreenshot(
+  screenshot: CapturedScreenshot,
+  id = createScreenshotId()
+): DraftScreenshot {
+  return {
+    ...screenshot,
+    id
+  };
+}
+
+function createScreenshotId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `screenshot-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getScreenshotFromEvent(
+  event: Event,
+  draft: IssueDraftState
+): DraftScreenshot | null {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+
+  return findDraftScreenshot(draft, target.dataset.screenshotId ?? "");
+}
+
+function findDraftScreenshot(
+  draft: IssueDraftState,
+  id: string
+): DraftScreenshot | null {
+  return draft.screenshots.find((screenshot) => screenshot.id === id) ?? null;
+}
+
+function getActiveCropScreenshot(draft: IssueDraftState): DraftScreenshot | null {
+  return draft.activeCropId ? findDraftScreenshot(draft, draft.activeCropId) : null;
+}
+
+function moveDraftScreenshot(
+  draft: IssueDraftState,
+  id: string,
+  direction: "left" | "right"
+): void {
+  const index = draft.screenshots.findIndex((screenshot) => screenshot.id === id);
+  if (index === -1) {
+    return;
+  }
+
+  const nextIndex = direction === "left" ? index - 1 : index + 1;
+  if (nextIndex < 0 || nextIndex >= draft.screenshots.length) {
+    return;
+  }
+
+  const reordered = [...draft.screenshots];
+  const [item] = reordered.splice(index, 1);
+  reordered.splice(nextIndex, 0, item);
+  draft.screenshots = reordered;
+}
+
+function toCapturedScreenshot(screenshot: DraftScreenshot): CapturedScreenshot {
+  return {
+    dataUrl: screenshot.dataUrl,
+    mimeType: screenshot.mimeType,
+    width: screenshot.width,
+    height: screenshot.height,
+    clickX: screenshot.clickX,
+    clickY: screenshot.clickY
+  };
+}
+
 async function submitIssueDraft(
   context: CaptureContext,
   draft: IssueDraftState,
@@ -447,7 +659,7 @@ async function submitIssueDraft(
       title: draft.title,
       description: editorHtmlToMarkdown(draft.editorHtml),
       labels: draft.selectedLabels,
-      screenshot: draft.screenshot ?? undefined,
+      screenshots: draft.screenshots.map(toCapturedScreenshot),
       context: {
         url: context.url,
         title: context.title,
@@ -592,7 +804,7 @@ function buildIssueFormHtml(
           </div>
         </div>
 
-        ${buildScreenshotPreview(draft)}
+        ${buildScreenshotStrip(draft)}
 
         <div>
           <span class="field-heading">Labels</span>
@@ -610,7 +822,6 @@ function buildIssueFormHtml(
         ${buildContextDetails(context)}
 
         <div class="button-row">
-          <button type="button" data-retake>Retake</button>
           <button class="primary-action" type="submit" ${
             draft.submitting ? "disabled" : ""
           }>${draft.submitting ? "Creating" : "Create Issue"}</button>
@@ -635,38 +846,94 @@ function buildLabelCheckbox(label: GitHubLabel, draft: IssueDraftState): string 
   `;
 }
 
-function buildScreenshotPreview(draft: IssueDraftState): string {
-  if (draft.screenshot) {
-    return `
-      <div>
-        <span class="field-heading">Screenshot</span>
-        <div class="screenshot-preview">
-          <button type="button" data-open-crop class="preview-button" title="Open crop preview">
-            <img src="${draft.screenshot.dataUrl}" alt="Marked screenshot preview" />
-          </button>
-          <div class="screenshot-meta">
-            <span>WebP, ${draft.screenshot.width} x ${draft.screenshot.height}</span>
-            <div class="button-row">
-              <button type="button" data-retake>Retake</button>
-              <button type="button" data-remove-screenshot>Remove</button>
-            </div>
-          </div>
+function buildScreenshotStrip(draft: IssueDraftState): string {
+  const addDisabled = draft.screenshots.length >= MAX_SCREENSHOTS;
+
+  return `
+    <div>
+      <div class="field-heading-row">
+        <span class="field-heading">Screenshots</span>
+        <span>${draft.screenshots.length} of ${MAX_SCREENSHOTS}</span>
+        <button type="button" data-add-screenshot ${
+          addDisabled ? "disabled" : ""
+        }>Add screenshot</button>
+      </div>
+      ${draft.captureWarning ? `<p class="notice">${escapeHtml(draft.captureWarning)}</p>` : ""}
+      <div class="screenshot-strip" aria-label="Captured screenshots">
+        ${
+          draft.screenshots.length > 0
+            ? draft.screenshots
+                .map((screenshot, index) =>
+                  buildScreenshotStripItem(screenshot, index, draft.screenshots.length)
+                )
+                .join("")
+            : `<span class="empty-state">No screenshot attached</span>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function buildScreenshotStripItem(
+  screenshot: DraftScreenshot,
+  index: number,
+  total: number
+): string {
+  const id = escapeHtml(screenshot.id);
+  const title = `Screenshot ${index + 1}`;
+
+  return `
+    <article class="screenshot-item">
+      <button
+        type="button"
+        data-open-crop
+        data-screenshot-id="${id}"
+        class="preview-button"
+        title="Preview and crop ${escapeHtml(title)}"
+      >
+        <img src="${screenshot.dataUrl}" alt="${escapeHtml(title)} marked preview" />
+      </button>
+      <div class="screenshot-meta">
+        <span>${escapeHtml(title)}: WebP, ${screenshot.width} x ${
+          screenshot.height
+        }, click x=${screenshot.clickX}, y=${screenshot.clickY}</span>
+        <div class="screenshot-actions">
+          <button
+            type="button"
+            data-move-screenshot="left"
+            data-screenshot-id="${id}"
+            ${index === 0 ? "disabled" : ""}
+          >Left</button>
+          <button
+            type="button"
+            data-move-screenshot="right"
+            data-screenshot-id="${id}"
+            ${index === total - 1 ? "disabled" : ""}
+          >Right</button>
+          <button
+            type="button"
+            data-retake-screenshot
+            data-screenshot-id="${id}"
+          >Retake</button>
+          <button
+            type="button"
+            data-remove-screenshot
+            data-screenshot-id="${id}"
+          >Remove</button>
         </div>
       </div>
-    `;
-  }
-
-  return draft.captureWarning
-    ? `<p class="notice">${escapeHtml(draft.captureWarning)}</p>`
-    : "";
+    </article>
+  `;
 }
 
 function buildCropModal(draft: IssueDraftState): string {
-  if (!draft.screenshot || !draft.crop) {
+  const screenshot = getActiveCropScreenshot(draft);
+  if (!screenshot || !draft.crop) {
     return "";
   }
 
-  const cropStyle = cropToPercentStyle(draft.crop, draft.screenshot);
+  const screenshotIndex = draft.screenshots.findIndex((item) => item.id === screenshot.id);
+  const cropStyle = cropToPercentStyle(draft.crop, screenshot);
 
   return `
     <div class="crop-layer" role="dialog" aria-modal="true" aria-label="Screenshot crop">
@@ -674,12 +941,12 @@ function buildCropModal(draft: IssueDraftState): string {
         <div class="panel-header">
           <div>
             <h1>Screenshot crop</h1>
-            <p>Drag the crop box or its lower-right handle.</p>
+            <p>Screenshot ${screenshotIndex + 1}. Drag the crop box or its lower-right handle.</p>
           </div>
           <button type="button" data-close-crop>Close</button>
         </div>
         <div class="crop-stage" data-crop-stage>
-          <img src="${draft.screenshot.dataUrl}" alt="Screenshot crop source" />
+          <img src="${screenshot.dataUrl}" alt="Screenshot crop source" />
           <div class="crop-box" data-crop-box style="${cropStyle}">
             <span class="crop-handle" data-crop-handle></span>
           </div>
@@ -713,7 +980,8 @@ function bindCropDrag(shadow: ShadowRoot, draft: IssueDraftState): void {
   }
 
   const startDrag = (event: PointerEvent, mode: "move" | "resize") => {
-    if (!draft.screenshot || !draft.crop) {
+    const screenshot = getActiveCropScreenshot(draft);
+    if (!screenshot || !draft.crop) {
       return;
     }
 
@@ -726,13 +994,15 @@ function bindCropDrag(shadow: ShadowRoot, draft: IssueDraftState): void {
     };
 
     const onMove = (moveEvent: PointerEvent) => {
-      if (!draft.screenshot) {
+      const activeScreenshot = getActiveCropScreenshot(draft);
+      if (!activeScreenshot) {
         return;
       }
       const rect = stage.getBoundingClientRect();
-      const dx = ((moveEvent.clientX - start.pointerX) / rect.width) * draft.screenshot.width;
+      const dx =
+        ((moveEvent.clientX - start.pointerX) / rect.width) * activeScreenshot.width;
       const dy =
-        ((moveEvent.clientY - start.pointerY) / rect.height) * draft.screenshot.height;
+        ((moveEvent.clientY - start.pointerY) / rect.height) * activeScreenshot.height;
 
       draft.crop =
         mode === "move"
@@ -742,7 +1012,7 @@ function bindCropDrag(shadow: ShadowRoot, draft: IssueDraftState): void {
                 x: start.crop.x + dx,
                 y: start.crop.y + dy
               },
-              draft.screenshot
+              activeScreenshot
             )
           : clampCrop(
               {
@@ -750,12 +1020,12 @@ function bindCropDrag(shadow: ShadowRoot, draft: IssueDraftState): void {
                 width: start.crop.width + dx,
                 height: start.crop.height + dy
               },
-              draft.screenshot
+              activeScreenshot
             );
 
       cropBox.setAttribute(
         "style",
-        cropToPercentStyle(draft.crop, draft.screenshot)
+        cropToPercentStyle(draft.crop, activeScreenshot)
       );
     };
 
@@ -794,17 +1064,17 @@ async function applyCrop(
   draft: IssueDraftState,
   render: () => void
 ): Promise<void> {
-  if (!draft.screenshot || !draft.crop) {
+  const screenshot = getActiveCropScreenshot(draft);
+  if (!screenshot || !draft.crop) {
     return;
   }
 
-  draft.screenshot = await cropScreenshot(draft.screenshot, draft.crop);
-  draft.crop = {
-    x: 0,
-    y: 0,
-    width: draft.screenshot.width,
-    height: draft.screenshot.height
-  };
+  const cropped = await cropScreenshot(screenshot, draft.crop);
+  draft.screenshots = draft.screenshots.map((item) =>
+    item.id === screenshot.id ? createDraftScreenshot(cropped, screenshot.id) : item
+  );
+  draft.crop = null;
+  draft.activeCropId = null;
   draft.cropOpen = false;
   render();
 }
@@ -1494,43 +1764,79 @@ function baseStyles(): string {
         font-weight: 650;
       }
 
-      .screenshot-preview {
+      .field-heading-row {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+      }
+
+      .field-heading-row > span:last-of-type {
+        color: color-mix(in srgb, CanvasText 52%, transparent);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .screenshot-strip {
+        display: grid;
+        gap: 8px;
+        margin-block-start: 8px;
+      }
+
+      .screenshot-item {
         border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
         border-radius: 8px;
         display: grid;
         gap: 8px;
-        margin-block-start: 8px;
-        overflow: hidden;
+        grid-template-columns: 132px minmax(0, 1fr);
+        min-block-size: 96px;
         padding: 8px;
       }
 
       .preview-button {
-        background: transparent;
+        background: color-mix(in srgb, CanvasText 5%, Canvas);
         border: 0;
         border-radius: 6px;
         display: block;
+        inline-size: 100%;
+        min-block-size: 80px;
         padding: 0;
       }
 
-      .screenshot-preview img {
+      .preview-button img {
         border-radius: 6px;
+        block-size: 80px;
         display: block;
         inline-size: 100%;
-        max-block-size: 220px;
-        object-fit: contain;
+        object-fit: cover;
       }
 
       .screenshot-meta {
-        align-items: center;
-        display: flex;
+        align-content: space-between;
+        display: grid;
         gap: 10px;
-        justify-content: space-between;
+        min-inline-size: 0;
       }
 
       .screenshot-meta span {
         color: color-mix(in srgb, CanvasText 58%, transparent);
         font-size: 12px;
         font-weight: 700;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .screenshot-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: end;
+      }
+
+      .screenshot-actions button {
+        min-block-size: 28px;
+        padding: 0 8px;
       }
 
       .crop-layer {
@@ -1636,6 +1942,19 @@ function baseStyles(): string {
 
         .panel-header {
           flex-direction: column;
+        }
+
+        .field-heading-row {
+          align-items: start;
+          flex-direction: column;
+        }
+
+        .screenshot-item {
+          grid-template-columns: 1fr;
+        }
+
+        .screenshot-actions {
+          justify-content: start;
         }
 
         .button-row {

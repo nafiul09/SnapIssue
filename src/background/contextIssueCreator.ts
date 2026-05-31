@@ -4,7 +4,7 @@ import {
   type FetchLike
 } from "../shared/githubClient";
 import { uploadWebPScreenshotToR2 } from "./r2Uploader";
-import { buildContextOnlyIssueBody } from "../shared/issueBody";
+import { buildContextOnlyIssueBody, type IssueScreenshot } from "../shared/issueBody";
 import { normalizeR2Settings, type R2Settings } from "../shared/r2Settings";
 import type { CreateContextIssuePayload } from "../shared/runtimeMessages";
 import { STORAGE_KEYS } from "../shared/storageKeys";
@@ -77,7 +77,9 @@ export async function createContextOnlyIssue(
       }
     });
 
-    if (!payload.screenshot) {
+    const screenshots = payload.screenshots ?? (payload.screenshot ? [payload.screenshot] : []);
+
+    if (screenshots.length === 0) {
       return {
         ok: true,
         issueNumber: issue.number,
@@ -86,24 +88,32 @@ export async function createContextOnlyIssue(
     }
 
     try {
-      const upload = await uploadScreenshot({
-        settings: normalizeR2Settings(snapshot[STORAGE_KEYS.r2Settings] as R2Settings),
-        githubLogin: readRequiredString(snapshot[STORAGE_KEYS.githubLogin]),
-        owner: payload.owner,
-        repo: payload.repo,
-        issueNumber: issue.number,
-        dataUrl: payload.screenshot.dataUrl
-      });
+      const r2Settings = normalizeR2Settings(
+        snapshot[STORAGE_KEYS.r2Settings] as R2Settings
+      );
+      const githubLogin = readRequiredString(snapshot[STORAGE_KEYS.githubLogin]);
+      const uploadedScreenshots: IssueScreenshot[] = [];
+
+      for (const screenshot of screenshots) {
+        const upload = await uploadScreenshot({
+          settings: r2Settings,
+          githubLogin,
+          owner: payload.owner,
+          repo: payload.repo,
+          issueNumber: issue.number,
+          dataUrl: screenshot.dataUrl
+        });
+        uploadedScreenshots.push({
+          url: upload.publicUrl,
+          clickX: screenshot.clickX,
+          clickY: screenshot.clickY
+        });
+      }
+
       const finalBody = buildContextOnlyIssueBody({
         description: payload.description,
         context: payload.context,
-        screenshots: [
-          {
-            url: upload.publicUrl,
-            clickX: payload.screenshot.clickX,
-            clickY: payload.screenshot.clickY
-          }
-        ]
+        screenshots: uploadedScreenshots
       });
 
       await updateGitHubIssueBody(

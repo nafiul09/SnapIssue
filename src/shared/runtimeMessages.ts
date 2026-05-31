@@ -35,6 +35,7 @@ export type CreateContextIssuePayload = {
   labels: string[];
   context: CapturedPageContext;
   screenshot?: CapturedScreenshot;
+  screenshots?: CapturedScreenshot[];
 };
 
 export type CapturedScreenshot = {

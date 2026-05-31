@@ -67,7 +67,7 @@ describe("createContextOnlyIssue", () => {
     expect(storage.set).not.toHaveBeenCalled();
   });
 
-  it("creates the issue before uploading and patching screenshot Markdown", async () => {
+  it("creates the issue before uploading and patching ordered screenshot Markdown", async () => {
     const storage = createStorage({
       [STORAGE_KEYS.githubToken]: "token-value",
       [STORAGE_KEYS.githubLogin]: "octocat",
@@ -99,23 +99,39 @@ describe("createContextOnlyIssue", () => {
           { status: 200 }
         )
       );
-    const uploadScreenshot = vi.fn(async () => ({
-      key: "captures/file.webp",
-      publicUrl: "https://assets.example.com/captures/file.webp"
-    }));
+    const uploadScreenshot = vi
+      .fn()
+      .mockResolvedValueOnce({
+        key: "captures/first.webp",
+        publicUrl: "https://assets.example.com/captures/first.webp"
+      })
+      .mockResolvedValueOnce({
+        key: "captures/second.webp",
+        publicUrl: "https://assets.example.com/captures/second.webp"
+      });
 
     await createContextOnlyIssue(
       storage,
       {
         ...payload,
-        screenshot: {
-          dataUrl: "data:image/webp;base64,abc",
-          mimeType: "image/webp",
-          width: 1440,
-          height: 900,
-          clickX: 321,
-          clickY: 222
-        }
+        screenshots: [
+          {
+            dataUrl: "data:image/webp;base64,first",
+            mimeType: "image/webp",
+            width: 1440,
+            height: 900,
+            clickX: 321,
+            clickY: 222
+          },
+          {
+            dataUrl: "data:image/webp;base64,second",
+            mimeType: "image/webp",
+            width: 1280,
+            height: 720,
+            clickX: 98,
+            clickY: 76
+          }
+        ]
       },
       fetchImpl,
       uploadScreenshot
@@ -130,10 +146,20 @@ describe("createContextOnlyIssue", () => {
     expect(fetchImpl.mock.calls[1][0]).toBe(
       "https://api.github.com/repos/acme/web/issues/123"
     );
-    expect(fetchImpl.mock.calls[1][1].body).toContain("## Screenshots");
-    expect(fetchImpl.mock.calls[1][1].body).toContain(
-      "https://assets.example.com/captures/file.webp"
+    expect(uploadScreenshot).toHaveBeenCalledTimes(2);
+    expect(uploadScreenshot.mock.calls[0][0].dataUrl).toBe(
+      "data:image/webp;base64,first"
     );
+    expect(uploadScreenshot.mock.calls[1][0].dataUrl).toBe(
+      "data:image/webp;base64,second"
+    );
+    const patchedBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string).body;
+    expect(patchedBody).toContain("## Screenshots");
+    expect(patchedBody.indexOf("captures/first.webp")).toBeLessThan(
+      patchedBody.indexOf("captures/second.webp")
+    );
+    expect(patchedBody).toContain("Click: x=321, y=222");
+    expect(patchedBody).toContain("Click: x=98, y=76");
   });
 
   it("keeps the issue created when screenshot upload fails", async () => {

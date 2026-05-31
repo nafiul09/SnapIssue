@@ -59,4 +59,31 @@ describe("buildContextOnlyIssueBody", () => {
     expect(body).toContain("Click: x=321, y=222");
     expect(body.indexOf("## Screenshots")).toBeLessThan(body.indexOf("## Context"));
   });
+
+  it("keeps multiple screenshots and click coordinates in the chosen order", () => {
+    const body = buildContextOnlyIssueBody({
+      description: "Screenshots attached.",
+      context,
+      screenshots: [
+        {
+          url: "https://assets.example.com/second-position.webp",
+          clickX: 22,
+          clickY: 44
+        },
+        {
+          url: "https://assets.example.com/first-position.webp",
+          clickX: 88,
+          clickY: 99
+        }
+      ]
+    });
+
+    expect(body.indexOf("second-position.webp")).toBeLessThan(
+      body.indexOf("first-position.webp")
+    );
+    expect(body).toContain("### Screenshot 1");
+    expect(body).toContain("Click: x=22, y=44");
+    expect(body).toContain("### Screenshot 2");
+    expect(body).toContain("Click: x=88, y=99");
+  });
 });
