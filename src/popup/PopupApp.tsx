@@ -38,10 +38,16 @@ export function PopupApp() {
     }
 
     try {
-      const response = (await runtime.sendMessage({
+      const captureRequest = runtime.sendMessage({
         type: SNAPISSUE_CAPTURE_REQUEST,
         source: "popup"
-      } satisfies CaptureRequestMessage)) as CaptureResult | undefined;
+      } satisfies CaptureRequestMessage) as Promise<CaptureResult | undefined>;
+
+      window.setTimeout(() => {
+        window.close();
+      }, 0);
+
+      const response = await captureRequest;
 
       if (response?.ok) {
         await globalThis.chrome?.storage?.local?.remove([
@@ -49,7 +55,6 @@ export function PopupApp() {
         ]);
         setCaptureState("started");
         setMessage("Capture started");
-        window.close();
         return;
       }
 

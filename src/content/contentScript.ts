@@ -191,6 +191,52 @@ function mountCaptureOverlay(source: CaptureSource): void {
     abortController.abort();
     host.remove();
   };
+  const eventIsInsideOverlay = (event: Event) =>
+    event.composedPath().includes(host);
+  const stopPageKeyboardShortcut = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      close();
+      return;
+    }
+
+    if (eventIsInsideOverlay(event)) {
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const stopShadowKeyboardShortcut = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      close();
+      return;
+    }
+
+    event.stopImmediatePropagation();
+  };
+  const stopShadowKeyboardEvent: EventListener = (event) => {
+    if (event instanceof KeyboardEvent) {
+      stopShadowKeyboardShortcut(event);
+    }
+  };
+
+  shadow.addEventListener("keydown", stopShadowKeyboardEvent, {
+    capture: true,
+    signal: abortController.signal
+  });
+  shadow.addEventListener("keypress", stopShadowKeyboardEvent, {
+    capture: true,
+    signal: abortController.signal
+  });
+  shadow.addEventListener("keyup", stopShadowKeyboardEvent, {
+    capture: true,
+    signal: abortController.signal
+  });
 
   const startCaptureMode: StartCaptureMode = ({ onCancel, onComplete }) => {
     renderCaptureMode(shadow);
@@ -252,12 +298,18 @@ function mountCaptureOverlay(source: CaptureSource): void {
 
   document.addEventListener(
     "keydown",
-    (event) => {
-      if (event.key === "Escape") {
-        close();
-      }
-    },
-    { signal: abortController.signal }
+    stopPageKeyboardShortcut,
+    { capture: true, signal: abortController.signal }
+  );
+  document.addEventListener(
+    "keypress",
+    stopPageKeyboardShortcut,
+    { capture: true, signal: abortController.signal }
+  );
+  document.addEventListener(
+    "keyup",
+    stopPageKeyboardShortcut,
+    { capture: true, signal: abortController.signal }
   );
   window.addEventListener("pagehide", close, { signal: abortController.signal });
   window.addEventListener("beforeunload", close, { signal: abortController.signal });

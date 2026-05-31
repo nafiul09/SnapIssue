@@ -129,6 +129,35 @@ describe("contentScript capture overlay", () => {
     expect(document.getElementById("snapissue-overlay-host")).toBeNull();
   });
 
+  it("keeps page keyboard shortcuts from receiving keys while the draft is open", async () => {
+    const pageKeyHandler = vi.fn();
+    document.addEventListener("keydown", pageKeyHandler);
+    const host = await openContextOnlyDraft();
+    const title = host?.shadowRoot?.querySelector("[data-title]");
+
+    title?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        key: "s"
+      })
+    );
+
+    expect(pageKeyHandler).not.toHaveBeenCalled();
+
+    const pageEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "s"
+    });
+    const allowed = document.dispatchEvent(pageEvent);
+
+    expect(allowed).toBe(false);
+    expect(pageEvent.defaultPrevented).toBe(true);
+    expect(pageKeyHandler).not.toHaveBeenCalled();
+  });
+
   it("canceling the form and page lifecycle events clear the active draft", async () => {
     const host = await openContextOnlyDraft();
 
