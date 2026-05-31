@@ -25,6 +25,7 @@ export type CapturedPageContext = {
   viewportHeight: number;
   clickX: number;
   clickY: number;
+  environment?: string;
 };
 
 export type CreateContextIssuePayload = {

@@ -27,8 +27,14 @@ import {
   loadStoredSettings,
   saveGitHubCredentials,
   saveR2Settings,
+  saveSensitiveDomainPatterns,
   type LocalSettingsStorage
 } from "../shared/settingsStorage";
+import {
+  DEFAULT_SENSITIVE_DOMAIN_PATTERNS,
+  formatSensitiveDomainText,
+  parseSensitiveDomainText
+} from "../shared/sensitiveDomains";
 import {
   loadLabelsForRepo,
   loadRepoCatalog,
@@ -51,6 +57,7 @@ type BusyAction =
   | "repos"
   | "labels"
   | "create-label"
+  | "privacy"
   | null;
 
 export function OptionsApp() {
@@ -66,6 +73,9 @@ export function OptionsApp() {
   const [labels, setLabels] = useState<GitHubLabel[]>([]);
   const [selectedLabelNames, setSelectedLabelNames] = useState<string[]>([]);
   const [newLabelName, setNewLabelName] = useState("");
+  const [sensitiveDomainText, setSensitiveDomainText] = useState(() =>
+    formatSensitiveDomainText([...DEFAULT_SENSITIVE_DOMAIN_PATTERNS])
+  );
   const [notice, setNotice] = useState<Notice>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
 
@@ -92,6 +102,7 @@ export function OptionsApp() {
     setGithubToken(stored.githubToken);
     setGithubLogin(stored.githubLogin);
     setR2Settings(stored.r2Settings ?? emptyR2Settings());
+    setSensitiveDomainText(formatSensitiveDomainText(stored.sensitiveDomainPatterns));
 
     const cachedCatalog = await loadRepoCatalog(storage);
     setRepoCatalog(cachedCatalog);
@@ -354,6 +365,54 @@ export function OptionsApp() {
       ...current,
       [key]: value
     }));
+  }
+
+  async function handleSavePrivacy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("privacy");
+    setNotice(null);
+
+    try {
+      const saved = await saveSensitiveDomainPatterns(
+        requireLocalStorage(),
+        parseSensitiveDomainText(sensitiveDomainText)
+      );
+      setSensitiveDomainText(formatSensitiveDomainText(saved));
+      setNotice({
+        kind: "success",
+        message: "Sensitive-domain warnings saved locally."
+      });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: getSettingsErrorMessage(error)
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleResetPrivacyDefaults() {
+    setBusyAction("privacy");
+    setNotice(null);
+
+    try {
+      const saved = await saveSensitiveDomainPatterns(requireLocalStorage(), [
+        ...DEFAULT_SENSITIVE_DOMAIN_PATTERNS
+      ]);
+      setSensitiveDomainText(formatSensitiveDomainText(saved));
+      setNotice({
+        kind: "success",
+        message: "Sensitive-domain defaults restored."
+      });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: getSettingsErrorMessage(error)
+      });
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   const githubConfigured = githubLogin.length > 0;
@@ -631,6 +690,49 @@ export function OptionsApp() {
             type="button"
           >
             {busyAction === "import" ? "Importing" : "Import JSON"}
+          </button>
+        </div>
+      </form>
+
+      <form className="settings-panel" onSubmit={(event) => void handleSavePrivacy(event)}>
+        <div className="section-heading">
+          <div>
+            <h2>Privacy Warnings</h2>
+            <p>Matching domains show a confirmation before screenshot upload.</p>
+          </div>
+          <span className="status-badge" data-ready="true">
+            Local
+          </span>
+        </div>
+
+        <div className="warning-block">
+          R2 screenshots are public by link. These warnings are reminders, not blocks.
+        </div>
+
+        <label className="field">
+          <span>Sensitive domains</span>
+          <textarea
+            className="compact-textarea"
+            onChange={(event) => setSensitiveDomainText(event.target.value)}
+            spellCheck={false}
+            value={sensitiveDomainText}
+          />
+        </label>
+
+        <div className="button-row">
+          <button
+            className="primary-action"
+            disabled={busyAction === "privacy"}
+            type="submit"
+          >
+            {busyAction === "privacy" ? "Saving" : "Save Warnings"}
+          </button>
+          <button
+            disabled={busyAction === "privacy"}
+            onClick={() => void handleResetPrivacyDefaults()}
+            type="button"
+          >
+            Reset Defaults
           </button>
         </div>
       </form>

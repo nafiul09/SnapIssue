@@ -6,7 +6,17 @@ const TOAST_HOST_ID = "snapissue-toast-host";
 const STORAGE_KEY_REPO_CATALOG = "repoCatalog";
 const STORAGE_KEY_LABEL_CACHE = "labelCache";
 const STORAGE_KEY_LAST_SUCCESSFUL_TARGET = "lastSuccessfulTarget";
+const STORAGE_KEY_SENSITIVE_DOMAIN_PATTERNS = "sensitiveDomainPatterns";
 const MAX_SCREENSHOTS = 5;
+const DEFAULT_SENSITIVE_DOMAIN_PATTERNS = [
+  "localhost",
+  "127.0.0.1",
+  "*.internal",
+  "*.admin",
+  "mail.google.com",
+  "bank",
+  "stripe.com"
+];
 
 type CaptureSource = "popup" | "command";
 
@@ -54,6 +64,11 @@ type IssueDraftState = {
   labels: GitHubLabel[];
   selectedLabels: string[];
   screenshots: DraftScreenshot[];
+  includeEnvironmentContext: boolean;
+  sensitiveDomainPatterns: string[];
+  sensitiveWarningVisible: boolean;
+  sensitiveWarningDismissed: boolean;
+  sensitiveMatchPattern: string | null;
   captureWarning: string | null;
   cropOpen: boolean;
   activeCropId: string | null;
@@ -283,6 +298,11 @@ function renderIssueOverlay(
     labels: [],
     selectedLabels: [],
     screenshots: initialScreenshot ? [initialScreenshot] : [],
+    includeEnvironmentContext: false,
+    sensitiveDomainPatterns: [...DEFAULT_SENSITIVE_DOMAIN_PATTERNS],
+    sensitiveWarningVisible: false,
+    sensitiveWarningDismissed: false,
+    sensitiveMatchPattern: null,
     captureWarning: screenshot ? null : "Screenshot capture failed. The issue can still be created.",
     cropOpen: false,
     activeCropId: null,
@@ -317,11 +337,15 @@ async function hydrateDraftTargets(draft: IssueDraftState): Promise<void> {
   const snapshot = await chrome.storage.local.get([
     STORAGE_KEY_REPO_CATALOG,
     STORAGE_KEY_LABEL_CACHE,
-    STORAGE_KEY_LAST_SUCCESSFUL_TARGET
+    STORAGE_KEY_LAST_SUCCESSFUL_TARGET,
+    STORAGE_KEY_SENSITIVE_DOMAIN_PATTERNS
   ]);
 
   draft.repoCatalog = readRepoCatalog(snapshot[STORAGE_KEY_REPO_CATALOG]);
   draft.labelCache = readLabelCache(snapshot[STORAGE_KEY_LABEL_CACHE]);
+  draft.sensitiveDomainPatterns = readSensitiveDomainPatterns(
+    snapshot[STORAGE_KEY_SENSITIVE_DOMAIN_PATTERNS]
+  );
 
   const lastTarget = readLastTarget(snapshot[STORAGE_KEY_LAST_SUCCESSFUL_TARGET]);
   if (
@@ -513,6 +537,26 @@ function bindIssueForm(
     });
   });
 
+  shadow
+    .querySelector("[data-environment-context]")
+    ?.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement) {
+        draft.includeEnvironmentContext = target.checked;
+      }
+    });
+
+  shadow.querySelector("[data-continue-sensitive]")?.addEventListener("click", () => {
+    draft.sensitiveWarningDismissed = true;
+    draft.sensitiveWarningVisible = false;
+    void submitIssueDraft(context, draft, render, close);
+  });
+
+  shadow.querySelector("[data-review-sensitive]")?.addEventListener("click", () => {
+    draft.sensitiveWarningVisible = false;
+    render();
+  });
+
   shadow.querySelector("[data-form]")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void submitIssueDraft(context, draft, render, close);
@@ -649,8 +693,18 @@ async function submitIssueDraft(
     return;
   }
 
+  const sensitiveMatch = getSensitiveWarningMatch(context, draft);
+  if (sensitiveMatch && !draft.sensitiveWarningDismissed) {
+    draft.error = null;
+    draft.sensitiveMatchPattern = sensitiveMatch.pattern;
+    draft.sensitiveWarningVisible = true;
+    render();
+    return;
+  }
+
   draft.submitting = true;
   draft.error = null;
+  draft.sensitiveWarningVisible = false;
   render();
 
   const response = (await chrome.runtime.sendMessage({
@@ -669,7 +723,10 @@ async function submitIssueDraft(
         viewportWidth: context.viewportWidth,
         viewportHeight: context.viewportHeight,
         clickX: context.clickX,
-        clickY: context.clickY
+        clickY: context.clickY,
+        environment: draft.includeEnvironmentContext
+          ? buildEnvironmentContext()
+          : undefined
       }
     }
   })) as CreateIssueResponse | undefined;
@@ -793,6 +850,7 @@ function buildIssueFormHtml(
         </div>
 
         ${draft.error ? `<p class="notice">${escapeHtml(draft.error)}</p>` : ""}
+        ${draft.sensitiveWarningVisible ? buildSensitiveWarning(draft) : ""}
 
         <div class="form-grid">
           <label>
@@ -875,6 +933,7 @@ function buildIssueFormHtml(
         </div>
 
         ${buildContextDetails(context)}
+        ${buildEnvironmentOption(draft)}
 
         <div class="button-row">
           <button class="primary-action" type="submit" ${
@@ -1176,6 +1235,41 @@ function editorButton(command: string, label: string, title: string): string {
   )}">${escapeHtml(label)}</button>`;
 }
 
+function buildSensitiveWarning(draft: IssueDraftState): string {
+  const pattern = draft.sensitiveMatchPattern ?? "configured pattern";
+  return `
+    <section class="sensitive-warning" role="alert">
+      <div>
+        <h2>Sensitive domain warning</h2>
+        <p>
+          This page matches ${escapeHtml(
+            pattern
+          )}. R2 screenshots are public by link after upload.
+        </p>
+      </div>
+      <div class="button-row">
+        <button type="button" data-review-sensitive>Review Draft</button>
+        <button class="primary-action" type="button" data-continue-sensitive>
+          Continue Upload
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function buildEnvironmentOption(draft: IssueDraftState): string {
+  return `
+    <label class="inline-checkbox">
+      <input
+        data-environment-context
+        type="checkbox"
+        ${draft.includeEnvironmentContext ? "checked" : ""}
+      />
+      <span>Include browser/OS environment</span>
+    </label>
+  `;
+}
+
 function buildContextDetails(context: CaptureContext): string {
   return `
     <dl class="context-grid">
@@ -1217,6 +1311,102 @@ function validateDraft(draft: IssueDraftState): string | null {
   }
 
   return null;
+}
+
+function getSensitiveWarningMatch(
+  context: CaptureContext,
+  draft: IssueDraftState
+): { host: string; pattern: string } | null {
+  if (draft.screenshots.length === 0) {
+    return null;
+  }
+
+  return findSensitiveDomainMatch(context.url, draft.sensitiveDomainPatterns);
+}
+
+function findSensitiveDomainMatch(
+  url: string,
+  patterns: string[]
+): { host: string; pattern: string } | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+
+  for (const pattern of normalizeSensitiveDomainPatterns(patterns)) {
+    if (sensitivePatternMatches(host, pattern)) {
+      return { host, pattern };
+    }
+  }
+
+  return null;
+}
+
+function sensitivePatternMatches(host: string, pattern: string): boolean {
+  if (pattern.startsWith("*.")) {
+    return host.endsWith(`.${pattern.slice(2)}`);
+  }
+
+  if (!pattern.includes(".")) {
+    return host === pattern || host.includes(pattern);
+  }
+
+  return host === pattern || host.endsWith(`.${pattern}`);
+}
+
+function buildEnvironmentContext(): string {
+  const userAgent = navigator.userAgent;
+  return `${detectBrowser(userAgent)} on ${detectOperatingSystem(userAgent)}`;
+}
+
+function detectBrowser(userAgent: string): string {
+  const edge = userAgent.match(/Edg\/([\d.]+)/);
+  if (edge) {
+    return `Edge ${majorVersion(edge[1])}`;
+  }
+
+  const chrome = userAgent.match(/Chrome\/([\d.]+)/);
+  if (chrome) {
+    return `Chrome ${majorVersion(chrome[1])}`;
+  }
+
+  const firefox = userAgent.match(/Firefox\/([\d.]+)/);
+  if (firefox) {
+    return `Firefox ${majorVersion(firefox[1])}`;
+  }
+
+  const safari = userAgent.match(/Version\/([\d.]+).*Safari/);
+  if (safari) {
+    return `Safari ${majorVersion(safari[1])}`;
+  }
+
+  return "Unknown browser";
+}
+
+function detectOperatingSystem(userAgent: string): string {
+  if (/Windows NT/i.test(userAgent)) {
+    return "Windows";
+  }
+  if (/Mac OS X/i.test(userAgent)) {
+    return "macOS";
+  }
+  if (/Android/i.test(userAgent)) {
+    return "Android";
+  }
+  if (/(iPhone|iPad|iPod)/i.test(userAgent)) {
+    return "iOS";
+  }
+  if (/Linux/i.test(userAgent)) {
+    return "Linux";
+  }
+
+  return "unknown OS";
+}
+
+function majorVersion(version: string): string {
+  return version.split(".")[0] || version;
 }
 
 function applyEditorCommand(editor: HTMLElement, command: string): void {
@@ -1487,6 +1677,34 @@ function readLabelCache(value: unknown): LabelCache {
   return cache;
 }
 
+function readSensitiveDomainPatterns(value: unknown): string[] {
+  return normalizeSensitiveDomainPatterns(value);
+}
+
+function normalizeSensitiveDomainPatterns(value: unknown): string[] {
+  const source = Array.isArray(value) ? value : DEFAULT_SENSITIVE_DOMAIN_PATTERNS;
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const item of source) {
+    if (typeof item !== "string") {
+      continue;
+    }
+
+    const pattern = item.trim().toLowerCase();
+    if (!pattern || seen.has(pattern)) {
+      continue;
+    }
+
+    seen.add(pattern);
+    normalized.push(pattern);
+  }
+
+  return normalized.length > 0
+    ? normalized
+    : [...DEFAULT_SENSITIVE_DOMAIN_PATTERNS];
+}
+
 function readLastTarget(value: unknown): { owner: string; repo: string } | null {
   if (!isRecord(value)) {
     return null;
@@ -1613,13 +1831,15 @@ function baseStyles(): string {
       }
 
       h1,
+      h2,
       p,
       dl,
       dd {
         margin: 0;
       }
 
-      h1 {
+      h1,
+      h2 {
         font-size: 15px;
         font-weight: 800;
         letter-spacing: 0;
@@ -1776,6 +1996,20 @@ function baseStyles(): string {
         font-weight: 700;
         line-height: 1.4;
         padding: 9px 10px;
+      }
+
+      .sensitive-warning {
+        background: color-mix(in srgb, #d97706 11%, Canvas);
+        border: 1px solid color-mix(in srgb, #d97706 28%, transparent);
+        border-radius: 8px;
+        display: grid;
+        gap: 10px;
+        padding: 10px;
+      }
+
+      .sensitive-warning p {
+        color: color-mix(in srgb, #92400e 78%, CanvasText);
+        font-weight: 700;
       }
 
       .label-list {
@@ -1956,6 +2190,24 @@ function baseStyles(): string {
         display: grid;
         gap: 0;
         padding: 6px 0;
+      }
+
+      .inline-checkbox {
+        align-items: center;
+        display: inline-flex;
+        gap: 8px;
+      }
+
+      .inline-checkbox input {
+        block-size: 16px;
+        inline-size: 16px;
+        margin: 0;
+      }
+
+      .inline-checkbox span {
+        color: CanvasText;
+        font-size: 12px;
+        font-weight: 750;
       }
 
       .context-grid div {

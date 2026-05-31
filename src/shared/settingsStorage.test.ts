@@ -4,9 +4,11 @@ import {
   clearR2Settings,
   loadStoredSettings,
   saveGitHubCredentials,
+  saveSensitiveDomainPatterns,
   saveR2Settings,
   type LocalSettingsStorage
 } from "./settingsStorage";
+import { DEFAULT_SENSITIVE_DOMAIN_PATTERNS } from "./sensitiveDomains";
 import { STORAGE_KEYS } from "./storageKeys";
 
 describe("settingsStorage", () => {
@@ -69,7 +71,20 @@ describe("settingsStorage", () => {
     await expect(loadStoredSettings(storage)).resolves.toEqual({
       githubToken: "token-value",
       githubLogin: "octocat",
-      r2Settings: null
+      r2Settings: null,
+      sensitiveDomainPatterns: [...DEFAULT_SENSITIVE_DOMAIN_PATTERNS]
+    });
+  });
+
+  it("saves normalized sensitive domain patterns", async () => {
+    const storage = createFakeStorage();
+
+    await expect(
+      saveSensitiveDomainPatterns(storage, [" Stripe.com ", "stripe.com", "*.Admin"])
+    ).resolves.toEqual(["stripe.com", "*.admin"]);
+
+    expect(storage.set).toHaveBeenCalledWith({
+      [STORAGE_KEYS.sensitiveDomainPatterns]: ["stripe.com", "*.admin"]
     });
   });
 });

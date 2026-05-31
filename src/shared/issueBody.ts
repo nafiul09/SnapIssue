@@ -56,7 +56,7 @@ export function buildScreenshotMarkdownLinks(
 }
 
 function buildContextSection(context: CapturedPageContext): string {
-  return [
+  const lines = [
     "## Context",
     "",
     `- Page: ${context.url}`,
@@ -64,5 +64,11 @@ function buildContextSection(context: CapturedPageContext): string {
     `- Captured at: ${context.capturedAt}`,
     `- Viewport: ${context.viewportWidth}x${context.viewportHeight}`,
     `- Click: x=${context.clickX}, y=${context.clickY}`
-  ].join("\n");
+  ];
+
+  if (context.environment) {
+    lines.push(`- Environment: ${context.environment}`);
+  }
+
+  return lines.join("\n");
 }

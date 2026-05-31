@@ -5,7 +5,8 @@ export const STORAGE_KEYS = {
   repoCatalog: "repoCatalog",
   labelCache: "labelCache",
   lastCaptureError: "lastCaptureError",
-  lastSuccessfulTarget: "lastSuccessfulTarget"
+  lastSuccessfulTarget: "lastSuccessfulTarget",
+  sensitiveDomainPatterns: "sensitiveDomainPatterns"
 } as const;
 
 export const SETTINGS_STATUS_STORAGE_KEYS = [

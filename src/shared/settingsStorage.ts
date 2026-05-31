@@ -1,4 +1,5 @@
 import { normalizeR2Settings, type R2Settings } from "./r2Settings";
+import { normalizeSensitiveDomainPatterns } from "./sensitiveDomains";
 import { STORAGE_KEYS } from "./storageKeys";
 
 export type LocalSettingsStorage = {
@@ -11,6 +12,7 @@ export type StoredSettings = {
   githubToken: string;
   githubLogin: string;
   r2Settings: R2Settings | null;
+  sensitiveDomainPatterns: string[];
 };
 
 export async function loadStoredSettings(
@@ -19,13 +21,17 @@ export async function loadStoredSettings(
   const snapshot = await storage.get([
     STORAGE_KEYS.githubToken,
     STORAGE_KEYS.githubLogin,
-    STORAGE_KEYS.r2Settings
+    STORAGE_KEYS.r2Settings,
+    STORAGE_KEYS.sensitiveDomainPatterns
   ]);
 
   return {
     githubToken: readString(snapshot[STORAGE_KEYS.githubToken]),
     githubLogin: readString(snapshot[STORAGE_KEYS.githubLogin]),
-    r2Settings: readR2Settings(snapshot[STORAGE_KEYS.r2Settings])
+    r2Settings: readR2Settings(snapshot[STORAGE_KEYS.r2Settings]),
+    sensitiveDomainPatterns: normalizeSensitiveDomainPatterns(
+      snapshot[STORAGE_KEYS.sensitiveDomainPatterns]
+    )
   };
 }
 
@@ -59,6 +65,17 @@ export async function saveR2Settings(
 
 export async function clearR2Settings(storage: LocalSettingsStorage): Promise<void> {
   await storage.remove([STORAGE_KEYS.r2Settings]);
+}
+
+export async function saveSensitiveDomainPatterns(
+  storage: LocalSettingsStorage,
+  patterns: string[]
+): Promise<string[]> {
+  const normalized = normalizeSensitiveDomainPatterns(patterns);
+  await storage.set({
+    [STORAGE_KEYS.sensitiveDomainPatterns]: normalized
+  });
+  return normalized;
 }
 
 function readR2Settings(value: unknown): R2Settings | null {

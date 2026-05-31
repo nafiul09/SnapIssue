@@ -202,6 +202,118 @@ describe("contentScript capture overlay", () => {
     expect(toast?.shadowRoot?.textContent).toContain("Copied");
   });
 
+  it("includes browser and OS environment only when the checkbox is enabled", async () => {
+    const host = await openContextOnlyDraft();
+    const environment = host?.shadowRoot?.querySelector("[data-environment-context]");
+    if (environment instanceof HTMLInputElement) {
+      expect(environment.checked).toBe(false);
+      environment.checked = true;
+      environment.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    host?.shadowRoot
+      ?.querySelector("[data-form]")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await Promise.resolve();
+
+    const payload = sendMessage.mock.calls.find(
+      ([message]) => message.type === "snapissue:create-context-issue"
+    )?.[0].payload;
+    if (!payload) {
+      throw new Error("Create issue payload was not sent.");
+    }
+    expect(payload.context.environment).toMatch(/ on /);
+  });
+
+  it("warns on matching sensitive domains before screenshot upload without hard-blocking", async () => {
+    installCanvasCaptureFakes();
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/webp;base64,sensitive"
+    );
+    sendMessage.mockImplementation(async (message: { type?: string }) =>
+      message.type === "snapissue:capture-visible-tab"
+        ? {
+            ok: true,
+            dataUrl: "data:image/png;base64,source"
+          }
+        : {
+            ok: true,
+            issueNumber: 123,
+            issueUrl: "https://github.com/acme/web/issues/123"
+          }
+    );
+    storageValues = {
+      repoCatalog: {
+        owners: [
+          {
+            owner: "acme",
+            repos: [
+              {
+                owner: "acme",
+                name: "web",
+                fullName: "acme/web",
+                private: false
+              }
+            ]
+          }
+        ]
+      },
+      labelCache: {},
+      sensitiveDomainPatterns: ["localhost"]
+    };
+
+    runtimeListener?.({
+      type: "snapissue:content-start-capture",
+      source: "popup"
+    });
+    const host = document.getElementById("snapissue-overlay-host");
+    host?.shadowRoot
+      ?.querySelector("[data-capture-layer]")
+      ?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          clientX: 10,
+          clientY: 20
+        })
+      );
+
+    await flushAsyncWork();
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    chooseAcmeWebTarget(host);
+    const title = host?.shadowRoot?.querySelector("[data-title]");
+    if (title instanceof HTMLInputElement) {
+      title.value = "Sensitive capture";
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    host?.shadowRoot
+      ?.querySelector("[data-form]")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(host?.shadowRoot?.textContent).toContain("Sensitive domain warning");
+    expect(host?.shadowRoot?.textContent).toContain("R2 screenshots are public by link");
+    expect(
+      sendMessage.mock.calls.some(
+        ([message]) => message.type === "snapissue:create-context-issue"
+      )
+    ).toBe(false);
+
+    host?.shadowRoot
+      ?.querySelector("[data-continue-sensitive]")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await Promise.resolve();
+
+    expect(
+      sendMessage.mock.calls.some(
+        ([message]) => message.type === "snapissue:create-context-issue"
+      )
+    ).toBe(true);
+  });
+
   it("submits Markdown from the WYSIWYG editor instead of HTML", async () => {
     storageValues = {
       repoCatalog: {
@@ -340,7 +452,8 @@ describe("contentScript capture overlay", () => {
           }
         ]
       },
-      labelCache: {}
+      labelCache: {},
+      sensitiveDomainPatterns: ["stripe.com"]
     };
 
     runtimeListener?.({
@@ -492,6 +605,20 @@ describe("contentScript capture overlay", () => {
     return host;
   }
 });
+
+function chooseAcmeWebTarget(host: HTMLElement | null): void {
+  const owner = host?.shadowRoot?.querySelector("[data-owner]");
+  if (owner instanceof HTMLSelectElement) {
+    owner.value = "acme";
+    owner.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  const repo = host?.shadowRoot?.querySelector("[data-repo]");
+  if (repo instanceof HTMLSelectElement) {
+    repo.value = "web";
+    repo.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
 
 function flushAsyncWork(): Promise<void> {
   return new Promise((resolve) => {

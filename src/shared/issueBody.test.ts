@@ -39,6 +39,18 @@ describe("buildContextOnlyIssueBody", () => {
     ).toBe(true);
   });
 
+  it("includes optional browser and OS environment context", () => {
+    expect(
+      buildContextOnlyIssueBody({
+        description: "Environment helps here.",
+        context: {
+          ...context,
+          environment: "Chrome 126 on macOS"
+        }
+      })
+    ).toContain("- Environment: Chrome 126 on macOS");
+  });
+
   it("appends screenshot Markdown before generated context", () => {
     const body = buildContextOnlyIssueBody({
       description: "Screenshot attached.",

@@ -71,6 +71,10 @@ textarea {
   resize: vertical;
 }
 
+.compact-textarea {
+  min-block-size: 118px;
+}
+
 .options-shell {
   display: grid;
   gap: 16px;
